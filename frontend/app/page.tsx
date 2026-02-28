@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_BASE || "/api/v1";
 
 interface Place {
   name: string;
@@ -108,7 +108,7 @@ export default function SearchPage() {
     const orig = selected.original;
 
     // Naver Map (보정 좌표)
-    if (nReady && nMapRef.current && window.naver) {
+    if (nReady && nMapRef.current && window.naver && window.naver.maps) {
       const pos = new window.naver.maps.LatLng(corr.lat, corr.lng);
       if (!nMap.current) {
         nMap.current = new window.naver.maps.Map(nMapRef.current, {
