@@ -18,11 +18,11 @@ ENV PYTHONPATH=/app/src
 ENV PORT=8080
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# Install deps directly to system Python (no venv) so CMD python can find them
+RUN uv export --frozen --no-dev --no-emit-project -o /tmp/requirements.txt && \
+    uv pip install --system -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
 COPY . .
 COPY --from=frontend /frontend/out /app/frontend/out
 EXPOSE 8080
-# uv run activates the .venv created by uv sync, ensuring all deps are available.
-# python (not uvicorn CLI): PYTHONPATH=/app/src makes src/ internals top-level,
-# which conflicts with uvicorn's package-style module resolution.
-CMD ["uv", "run", "python", "src/main.py"]
+CMD ["python", "src/main.py"]
