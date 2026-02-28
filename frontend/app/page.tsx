@@ -46,6 +46,7 @@ const STATUS_CONFIG = {
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [hlIdx, setHlIdx] = useState(-1);
   const [selected, setSelected] = useState<Place | null>(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<{ query: string; name: string; status: "verified" | "warning" | "not_found" }[]>([]);
@@ -55,11 +56,20 @@ export default function SearchPage() {
   const [nReady, setNReady] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [gSvDate, setGSvDate] = useState<string | null>(null);
+  const [nSvDate, setNSvDate] = useState<string | null>(null);
+  const [gSvAvail, setGSvAvail] = useState(true);
+  const [nSvAvail, setNSvAvail] = useState(true);
+
   // Map refs
   const nMapRef = useRef<HTMLDivElement>(null);
   const gMapRef = useRef<HTMLDivElement>(null);
+  const gSvRef = useRef<HTMLDivElement>(null);
+  const nSvRef = useRef<HTMLDivElement>(null);
   const nMap = useRef<any>(null);
   const gMap = useRef<google.maps.Map | null>(null);
+  const gSv = useRef<google.maps.StreetViewPanorama | null>(null);
+  const nSv = useRef<any>(null);
   const nMarker = useRef<any>(null);
   const gMarkers = useRef<google.maps.Marker[]>([]);
 
@@ -85,7 +95,7 @@ export default function SearchPage() {
   useEffect(() => {
     if (!naverKey || nReady) return;
     const s = document.createElement("script");
-    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${naverKey}`;
+    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${naverKey}&submodules=panorama`;
     s.async = true; s.onload = () => setNReady(true);
     document.head.appendChild(s);
   }, [naverKey, nReady]);
@@ -98,8 +108,8 @@ export default function SearchPage() {
       try {
         const res = await fetch(`${API_BASE}/search/autocomplete?q=${encodeURIComponent(value)}`);
         const data = await res.json();
-        setPredictions(data.predictions || []);
-      } catch { setPredictions([]); }
+        setPredictions(data.predictions || []); setHlIdx(-1);
+      } catch { setPredictions([]); setHlIdx(-1); }
     }, 300);
   }, []);
 
@@ -128,13 +138,17 @@ export default function SearchPage() {
     finally { setLoading(false); }
   }, [query]);
 
-  // Reset map instances when returning to empty state (DOM unmounts)
+  // Reset map/street view instances when returning to empty state (DOM unmounts)
   useEffect(() => {
     if (!selected) {
       gMap.current = null;
       nMap.current = null;
+      gSv.current = null;
+      nSv.current = null;
       nMarker.current = null;
       gMarkers.current = [];
+      setGSvDate(null); setNSvDate(null);
+      setGSvAvail(true); setNSvAvail(true);
     }
   }, [selected]);
 
@@ -186,6 +200,60 @@ export default function SearchPage() {
     }
   }, [selected, gReady, nReady]);
 
+  // Street View initialization
+  useEffect(() => {
+    if (!selected) return;
+    const orig = selected.original;
+    const n_loc = selected.naver_location;
+
+    // Google Street View
+    if (gReady && gSvRef.current) {
+      const svService = new google.maps.StreetViewService();
+      svService.getPanorama(
+        { location: orig, radius: 100, source: google.maps.StreetViewSource.OUTDOOR },
+        (data, status) => {
+          if (status === google.maps.StreetViewStatus.OK && data && gSvRef.current) {
+            setGSvAvail(true);
+            setGSvDate(data.imageDate || null);
+            if (!gSv.current) {
+              gSv.current = new google.maps.StreetViewPanorama(gSvRef.current, {
+                position: orig, pov: { heading: 0, pitch: 0 }, zoom: 1,
+                addressControl: false, fullscreenControl: false, motionTracking: false,
+              });
+            } else {
+              gSv.current.setPosition(orig);
+            }
+          } else {
+            setGSvAvail(false); setGSvDate(null);
+          }
+        }
+      );
+    }
+
+    // Naver Panorama (거리뷰)
+    if (nReady && nSvRef.current && window.naver?.maps?.Panorama) {
+      const pos = n_loc
+        ? new window.naver.maps.LatLng(n_loc.lat, n_loc.lng)
+        : new window.naver.maps.LatLng(orig.lat, orig.lng);
+      try {
+        const pano = new window.naver.maps.Panorama(nSvRef.current, {
+          position: pos, pov: { pan: 0, tilt: 0, fov: 100 },
+        });
+        nSv.current = pano;
+        setNSvAvail(true);
+        window.naver.maps.Event.addListener(pano, "pano_changed", () => {
+          try {
+            const d = pano.getPhotographDate();
+            setNSvDate(d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}` : null);
+          } catch { setNSvDate(null); }
+        });
+        window.naver.maps.Event.addListener(pano, "pano_status", (s: any) => {
+          if (s !== "OK") { setNSvAvail(false); setNSvDate(null); }
+        });
+      } catch { setNSvAvail(false); setNSvDate(null); }
+    }
+  }, [selected, gReady, nReady]);
+
   const sc = selected ? STATUS_CONFIG[selected.status] : null;
 
   return (
@@ -204,14 +272,29 @@ export default function SearchPage() {
         <div className="relative flex-1 max-w-xl">
           <input type="text" value={query}
             onChange={(e) => handleInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleSearch(); } }}
+            onKeyDown={(e) => {
+              if (predictions.length > 0) {
+                if (e.key === "ArrowDown") { e.preventDefault(); setHlIdx(i => (i + 1) % predictions.length); return; }
+                if (e.key === "ArrowUp") { e.preventDefault(); setHlIdx(i => (i - 1 + predictions.length) % predictions.length); return; }
+                if (e.key === "Escape") { setPredictions([]); setHlIdx(-1); return; }
+                if (e.key === "Enter" && hlIdx >= 0) {
+                  e.preventDefault();
+                  const p = predictions[hlIdx];
+                  setQuery(p.main_text); setPredictions([]); setHlIdx(-1); handleSearch(p.description);
+                  return;
+                }
+              }
+              if (e.key === "Enter") { e.preventDefault(); handleSearch(); }
+            }}
             placeholder="장소를 검색하세요 (예: 천상가옥, 블루보틀 성수)"
             className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-lg px-4 py-2.5 text-sm placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors" />
           {predictions.length > 0 && (
             <ul className="absolute top-full left-0 right-0 mt-1 bg-[var(--panel)] border border-[var(--border)] rounded-lg overflow-hidden z-40 shadow-xl">
-              {predictions.map((p) => (
-                <li key={p.place_id} className="px-4 py-2.5 text-sm cursor-pointer hover:bg-[var(--accent-dim)] transition-colors"
-                  onClick={() => { setQuery(p.main_text); setPredictions([]); handleSearch(p.description); }}>
+              {predictions.map((p, i) => (
+                <li key={p.place_id}
+                  className={`px-4 py-2.5 text-sm cursor-pointer transition-colors ${i === hlIdx ? "bg-[var(--accent-dim)]" : "hover:bg-[var(--accent-dim)]"}`}
+                  onMouseEnter={() => setHlIdx(i)}
+                  onClick={() => { setQuery(p.main_text); setPredictions([]); setHlIdx(-1); handleSearch(p.description); }}>
                   <span className="font-medium">{p.main_text}</span>
                   <span className="text-[var(--text-muted)] text-xs ml-2">{p.description.replace(p.main_text, "").replace(/^,?\s*/, "")}</span>
                 </li>
@@ -290,10 +373,10 @@ export default function SearchPage() {
                 </div>
               )}
 
-              {/* Maps: Google (left) | Naver (right) */}
-              <div className="flex-1 flex min-h-0">
-                {/* Google Map (left) */}
-                <div className="w-1/2 relative border-r border-[var(--border)]">
+              {/* 2x2 Grid: Maps (top) | Street Views (bottom) */}
+              <div className="flex-1 grid grid-cols-2 grid-rows-2 min-h-0">
+                {/* Google Map (top-left) */}
+                <div className="relative border-r border-b border-[var(--border)]">
                   <div className="absolute top-3 left-3 z-10">
                     <span className="bg-[var(--panel)] border border-[var(--border)] text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
                       📍 구글 지도
@@ -301,8 +384,8 @@ export default function SearchPage() {
                   </div>
                   <div ref={gMapRef} className="w-full h-full" />
                 </div>
-                {/* Naver Map (right) */}
-                <div className="w-1/2 relative">
+                {/* Naver Map (top-right) */}
+                <div className="relative border-b border-[var(--border)]">
                   <div className="absolute top-3 left-3 z-10">
                     <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-lg ${
                       selected.naver_location
@@ -313,6 +396,46 @@ export default function SearchPage() {
                     </span>
                   </div>
                   <div ref={nMapRef} className="w-full h-full" />
+                </div>
+                {/* Google Street View (bottom-left) */}
+                <div className="relative border-r border-[var(--border)]">
+                  <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+                    <span className="bg-[var(--panel)] border border-[var(--border)] text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                      🛣 구글 스트리트뷰
+                    </span>
+                    {gSvDate && (
+                      <span className="bg-[var(--panel)] border border-[var(--border)] text-[10px] text-[var(--text-muted)] px-2 py-1 rounded-full shadow-lg">
+                        촬영 {gSvDate}
+                      </span>
+                    )}
+                  </div>
+                  {gSvAvail ? (
+                    <div ref={gSvRef} className="w-full h-full" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-[var(--bg)] text-[var(--text-muted)] text-sm">
+                      스트리트뷰 없음
+                    </div>
+                  )}
+                </div>
+                {/* Naver Street View (bottom-right) */}
+                <div className="relative">
+                  <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+                    <span className="bg-[var(--panel)] border border-[var(--border)] text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                      🛣 네이버 거리뷰
+                    </span>
+                    {nSvDate && (
+                      <span className="bg-[var(--panel)] border border-[var(--border)] text-[10px] text-[var(--text-muted)] px-2 py-1 rounded-full shadow-lg">
+                        촬영 {nSvDate}
+                      </span>
+                    )}
+                  </div>
+                  {nSvAvail ? (
+                    <div ref={nSvRef} className="w-full h-full" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-[var(--bg)] text-[var(--text-muted)] text-sm">
+                      거리뷰 없음
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
