@@ -21,5 +21,8 @@ COPY . .
 # Expose the Cloud Run default port
 EXPOSE 8080
 
-# Command to run the application via Uvicorn 
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Command to run the application
+# Using `python src/main.py` instead of `uvicorn src.main:app`
+# because PYTHONPATH=/app/src treats src/ internals as top-level modules,
+# which conflicts with uvicorn's package-style module resolution.
+CMD ["python", "src/main.py"]
