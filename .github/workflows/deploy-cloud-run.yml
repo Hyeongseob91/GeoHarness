@@ -56,8 +56,9 @@ jobs:
         with:
           service: ${{ env.SERVICE_NAME }}
           region: ${{ env.REGION }}
+          project_id: ${{ env.PROJECT_ID }}
           source: .
-          # Assuming you set the API Keys as secrets in Github Repo settings 
+          # Assuming you set the API Keys as secrets in Github Repo settings
           env_vars: |
             GOOGLE_MAPS_KEY=${{ secrets.GOOGLE_MAPS_KEY }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
@@ -65,4 +66,24 @@ jobs:
             NAVER_CLIENT_SECRET=${{ secrets.NAVER_CLIENT_SECRET }}
             VWORLD_API_KEY=${{ secrets.VWORLD_API_KEY }}
           flags: '--allow-unauthenticated'
+
+      # 4. Show Cloud Build logs on failure for debugging
+      - name: Show Cloud Build logs
+        if: failure()
+        run: |
+          BUILD_ID=$(gcloud builds list --project=${{ env.PROJECT_ID }} --region=${{ env.REGION }} --limit=1 --format="value(id)" 2>/dev/null || true)
+          if [ -n "$BUILD_ID" ]; then
+            echo "=== Cloud Build Log (Build ID: $BUILD_ID) ==="
+            gcloud builds log "$BUILD_ID" --project=${{ env.PROJECT_ID }} --region=${{ env.REGION }} 2>/dev/null || \
+            gcloud builds log "$BUILD_ID" --project=${{ env.PROJECT_ID }} 2>/dev/null || \
+            echo "Could not retrieve build logs. Check GCP Console."
+          else
+            echo "No recent builds found. Trying without region filter..."
+            BUILD_ID=$(gcloud builds list --project=${{ env.PROJECT_ID }} --limit=1 --format="value(id)" 2>/dev/null || true)
+            if [ -n "$BUILD_ID" ]; then
+              gcloud builds log "$BUILD_ID" --project=${{ env.PROJECT_ID }} 2>/dev/null || echo "Could not retrieve logs."
+            else
+              echo "No builds found in project ${{ env.PROJECT_ID }}"
+            fi
+          fi
 
