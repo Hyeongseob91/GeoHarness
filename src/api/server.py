@@ -46,6 +46,19 @@ def load_landmarks():
 
 load_landmarks()
 
+from fastapi.staticfiles import StaticFiles
+
+# Add static front-end assets mounting
+app.mount("/static", StaticFiles(directory="src/static"), name="static")
+
+@app.get("/")
+def read_root():
+    # Helper to load front-end index trivially via FastAPI instead of separate file server.
+    html_file = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
+    with open(html_file, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
 @app.post("/api/v1/transform")
 def transform_endpoint(payload: Dict[str, Any] = Body(...)):
     start_ms = time.time() * 1000
