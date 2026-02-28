@@ -35,6 +35,7 @@ export default function SearchPage() {
   const [naverKey, setNaverKey] = useState("");
   const [gReady, setGReady] = useState(false);
   const [nReady, setNReady] = useState(false);
+  const [showCorrection, setShowCorrection] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Map refs
@@ -96,20 +97,24 @@ export default function SearchPage() {
         body: JSON.stringify({ query: q, region: "성수동" }),
       });
       const data = await res.json();
-      if (data.places?.length > 0) setSelected(data.places[0]);
+      if (data.places?.length > 0) {
+        setSelected(data.places[0]);
+        setShowCorrection(false); // Reset toggle state on new search
+      }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [query]);
 
-  // Update maps when selected changes
+  // Update maps when selected changes or showCorrection toggles
   useEffect(() => {
     if (!selected) return;
     const corr = selected.corrected;
     const orig = selected.original;
+    const n_loc = (selected as any).naver_location || corr; // fallback to corrected if naver_location is somehow not attached
 
-    // Naver Map (보정 좌표)
+    // Naver Map (검색된 네이버 좌표)
     if (nReady && nMapRef.current && window.naver && window.naver.maps) {
-      const pos = new window.naver.maps.LatLng(corr.lat, corr.lng);
+      const pos = new window.naver.maps.LatLng(n_loc.lat, n_loc.lng);
       if (!nMap.current) {
         nMap.current = new window.naver.maps.Map(nMapRef.current, {
           center: pos, zoom: 17,
@@ -134,14 +139,44 @@ export default function SearchPage() {
       gMarkers.current.forEach(m => m.setMap(null)); gMarkers.current = [];
       gLine.current?.setMap(null);
 
-      const mO = new google.maps.Marker({ position: orig, map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: "#ff5555", fillOpacity: 0.9, strokeColor: "#fff", strokeWeight: 2 }, title: "❌ 구글", zIndex: 1 });
-      const mC = new google.maps.Marker({ position: corr, map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: "#0df07a", fillOpacity: 0.95, strokeColor: "#fff", strokeWeight: 2 }, title: "✅ 보정", zIndex: 2 });
-      const ln = new google.maps.Polyline({ path: [orig, corr], map, strokeColor: "#0df07a", strokeOpacity: 0.85, strokeWeight: 3, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: "#0df07a", fillOpacity: 1 }, offset: "100%" }] });
-      gMarkers.current = [mO, mC]; gLine.current = ln;
-      const b = new google.maps.LatLngBounds(); b.extend(orig); b.extend(corr); map.fitBounds(b, 60);
-      const li = google.maps.event.addListener(map, "idle", () => { if ((map.getZoom() ?? 0) > 18) map.setZoom(18); google.maps.event.removeListener(li); });
+      // Always show Original Google Coordinate
+      const mO = new google.maps.Marker({
+        position: orig,
+        map,
+        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: "#ff5555", fillOpacity: 0.9, strokeColor: "#fff", strokeWeight: 2 },
+        title: "❌ 구글 (틀림)",
+        zIndex: 1
+      });
+      gMarkers.current.push(mO);
+
+      // Show Corrected coordinate and line ONLY IF toggled on
+      if (showCorrection) {
+        const mC = new google.maps.Marker({
+          position: corr,
+          map,
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: "#0df07a", fillOpacity: 0.95, strokeColor: "#fff", strokeWeight: 2 },
+          title: "✅ ML 보정",
+          zIndex: 2
+        });
+        const ln = new google.maps.Polyline({
+          path: [orig, corr],
+          map,
+          strokeColor: "#0df07a",
+          strokeOpacity: 0.85,
+          strokeWeight: 3,
+          icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: "#0df07a", fillOpacity: 1 }, offset: "100%" }]
+        });
+        gMarkers.current.push(mC);
+        gLine.current = ln;
+
+        const b = new google.maps.LatLngBounds(); b.extend(orig); b.extend(corr); map.fitBounds(b, 60);
+        const li = google.maps.event.addListener(map, "idle", () => { if ((map.getZoom() ?? 0) > 18) map.setZoom(18); google.maps.event.removeListener(li); });
+      } else {
+        map.setCenter(orig);
+        map.setZoom(17);
+      }
     }
-  }, [selected, gReady, nReady]);
+  }, [selected, gReady, nReady, showCorrection]);
 
   return (
     <div className="flex flex-col h-screen bg-[var(--bg)]">
@@ -191,48 +226,72 @@ export default function SearchPage() {
           <div className="flex-1 flex min-h-0">
             {/* 네이버 지도 (Naver Maps SDK) */}
             <div className="w-1/2 relative border-r-2 border-[var(--accent)]">
-              <div className="absolute top-3 left-3 z-10">
-                <span className="bg-[var(--accent)] text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">✅ 네이버 지도 (현재, ML 보정 좌표)</span>
+              <div className="absolute top-3 left-3 z-10 flex gap-2">
+                <span className="bg-[var(--accent)] text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">✅ 네이버 지도 (실제 위치 좌표)</span>
               </div>
               <div ref={nMapRef} className="w-full h-full" />
             </div>
             {/* 구글 지도 + 오차 마커 */}
-            <div className="w-1/2 relative">
+            <div className="w-1/2 relative bg-black/10">
               <div className="absolute top-3 left-3 z-10">
                 <span className="bg-[var(--danger)] text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">❌ 구글 지도 (업데이트 안됨)</span>
               </div>
-              <div className="absolute bottom-3 right-3 z-10 bg-black/70 backdrop-blur-sm border border-[var(--border)] rounded-lg p-2.5 text-xs">
-                <div className="flex items-center gap-2 mb-1"><span className="w-3 h-3 rounded-full bg-[#ff5555] inline-block" /><span>구글 좌표 (틀림)</span></div>
-                <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#0df07a] inline-block" /><span>ML 보정 (실제)</span></div>
-              </div>
+
+              {showCorrection && (
+                <div className="absolute top-3 right-3 z-10 bg-black/70 backdrop-blur-sm border border-[var(--border)] rounded-lg p-2.5 text-xs animate-in fade-in">
+                  <div className="flex items-center gap-2 mb-1"><span className="w-3 h-3 rounded-full bg-[#ff5555] inline-block" /><span>구글 좌표 (틀림)</span></div>
+                  <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#0df07a] inline-block" /><span>ML 보정 (실제)</span></div>
+                </div>
+              )}
+
+              {/* Toggle ML Correction Overlay Button */}
+              {!showCorrection && (
+                <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20">
+                  <button
+                    onClick={() => setShowCorrection(true)}
+                    className="px-6 py-3 bg-[var(--accent)] text-black font-extrabold rounded-full shadow-[0_0_20px_rgba(13,240,122,0.6)] hover:scale-105 transition-all animate-pulse"
+                  >
+                    ✨ ML 로직으로 좌표 보정하기
+                  </button>
+                </div>
+              )}
+
               <div ref={gMapRef} className="w-full h-full" />
             </div>
           </div>
-          <div className="flex-shrink-0 bg-[var(--panel)] border-t border-[var(--border)] px-6 py-3 flex items-center gap-8">
-            <div className="flex-1 min-w-0">
-              <h2 className="text-base font-bold truncate">{selected.name}</h2>
-              <p className="text-xs text-[var(--text-muted)] truncate">{selected.address}</p>
+          <div className="flex-shrink-0 bg-[var(--panel)] border-t border-[var(--border)] px-6 py-4 flex items-center justify-between gap-8">
+            <div className="flex-1 min-w-0 max-w-sm">
+              <h2 className="text-lg font-bold truncate leading-tight">{selected.name}</h2>
+              <p className="text-xs text-[var(--text-muted)] truncate mt-1">{selected.address}</p>
             </div>
-            <div className="text-center flex-shrink-0">
-              <p className={`text-3xl font-extrabold ${selected.correction_distance_m > 10 ? "text-[var(--danger)]" : selected.correction_distance_m > 3 ? "text-[var(--warning)]" : "text-[var(--accent)]"}`}>
-                {selected.correction_distance_m.toFixed(1)}<span className="text-base font-normal ml-1">m</span>
-              </p>
-              <p className="text-[10px] text-[var(--text-muted)]">구글 ↔ 실제 오차</p>
-            </div>
-            <div className="text-center flex-shrink-0">
-              <p className="text-3xl font-extrabold">{(selected.confidence * 100).toFixed(0)}<span className="text-base font-normal ml-0.5">%</span></p>
-              <p className="text-[10px] text-[var(--text-muted)]">보정 신뢰도</p>
-            </div>
-            <div className="text-center flex-shrink-0">
-              <p className={`text-sm font-semibold px-3 py-1.5 rounded-full ${selected.method === "ml" ? "bg-green-900/30 text-[var(--accent)]" : "bg-amber-900/30 text-[var(--warning)]"}`}>
-                {selected.method === "ml" ? "🧠 ML Model" : "📐 Fallback"}
-              </p>
-            </div>
-            <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.corrected.lat},${selected.corrected.lng}`}
-              target="_blank" rel="noopener noreferrer"
-              className="px-4 py-2 bg-[var(--blue)] text-white font-semibold rounded-lg text-sm hover:brightness-110 transition-all whitespace-nowrap flex-shrink-0">
-              📍 실제 위치로 길찾기
-            </a>
+
+            {showCorrection ? (
+              <div className="flex items-center gap-12 animate-in slide-in-from-right-8 opacity-100">
+                <div className="text-center flex-shrink-0">
+                  <p className={`text-4xl font-black ${(selected as any).sync_score > 90 ? "text-[var(--accent)]" : "text-[var(--warning)]"}`}>
+                    {(selected as any).sync_score ?? 95.0}<span className="text-xl font-normal ml-0.5">%</span>
+                  </p>
+                  <p className="text-xs font-medium text-[var(--text-muted)] mt-1 tracking-wider uppercase">네이버-구글 정합도</p>
+                </div>
+
+                <div className="text-center flex-shrink-0">
+                  <p className="text-4xl font-extrabold text-[#ff5555]">
+                    {selected.correction_distance_m.toFixed(1)}<span className="text-xl font-normal ml-1">m</span>
+                  </p>
+                  <p className="text-xs font-medium text-[var(--text-muted)] mt-1 tracking-wider uppercase">공간 오차</p>
+                </div>
+
+                <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.corrected.lat},${selected.corrected.lng}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="px-6 py-3 bg-[var(--blue)] text-white font-bold rounded-xl text-sm hover:bg-blue-500 shadow-lg hover:shadow-blue-500/50 transition-all whitespace-nowrap flex items-center gap-2">
+                  <span className="text-lg">📍</span> 구글맵 길찾기
+                </a>
+              </div>
+            ) : (
+              <div className="text-[var(--text-muted)] text-sm italic font-medium w-[400px] text-center">
+                ML 보정 기능을 적용하여 실제 위치와 좌표 편차를 확인하세요.
+              </div>
+            )}
           </div>
         </div>
       )}

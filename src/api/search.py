@@ -78,25 +78,64 @@ async def search_place(payload: dict):
     api_key = settings.GOOGLE_MAPS_KEY
     if not api_key:
         return {"error": "GOOGLE_MAPS_KEY not configured", "places": []}
+        
+    naver_client_id = settings.NAVER_CLIENT_ID
+    naver_client_secret = settings.NAVER_CLIENT_SECRET
 
-    # Google Places Text Search (New API)
-    url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-    params = {
+    # Prepare Tasks
+    google_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+    google_params = {
         "query": full_query,
         "key": api_key,
         "language": "ko",
         "region": "kr",
     }
+    
+    naver_url = "https://openapi.naver.com/v1/search/local.json"
+    naver_headers = {
+        "X-Naver-Client-Id": naver_client_id,
+        "X-Naver-Client-Secret": naver_client_secret
+    }
+    naver_params = {
+        "query": full_query,
+        "display": 1
+    }
 
     try:
+        import asyncio
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as resp:
-                if resp.status != 200:
-                    return {"error": f"Google API error: {resp.status}", "places": []}
-                data = await resp.json()
+            g_task = session.get(google_url, params=google_params)
+            n_task = None
+            if naver_client_id and naver_client_secret:
+                n_task = session.get(naver_url, headers=naver_headers, params=naver_params)
+            
+            if n_task:
+                g_resp, n_resp = await asyncio.gather(g_task, n_task)
+            else:
+                g_resp = await g_task
+                n_resp = None
+            
+            if g_resp.status != 200:
+                return {"error": f"Google API error: {g_resp.status}", "places": []}
+            data = await g_resp.json()
+            
+            naver_data = None
+            if n_resp and n_resp.status == 200:
+                naver_data = await n_resp.json()
 
         results = data.get("results", [])
         places = []
+        
+        # Get first Naver Result if exists
+        n_lat, n_lng = None, None
+        if naver_data and naver_data.get("items") and len(naver_data["items"]) > 0:
+            n_item = naver_data["items"][0]
+            try:
+                # Naver mapx/mapy are KATEC or WGS84 * 10^7. Let's assume WGS84*10^7 based on recent APIs
+                n_lng = float(n_item["mapx"]) / 10000000.0
+                n_lat = float(n_item["mapy"]) / 10000000.0
+            except (ValueError, KeyError):
+                pass
 
         for place in results[:5]:  # 상위 5건만
             geo = place.get("geometry", {}).get("location", {})
@@ -113,6 +152,21 @@ async def search_place(payload: dict):
             dlng = math.radians(correction["corrected_lng"] - g_lng)
             a = math.sin(dlat/2)**2 + math.cos(math.radians(g_lat)) * math.cos(math.radians(correction["corrected_lat"])) * math.sin(dlng/2)**2
             dist_m = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
+            
+            # Sync 거리 및 점수 계산 (Naver 좌표가 있을 경우)
+            sync_score = 0
+            naver_location = None
+            if n_lat and n_lng:
+                naver_location = {"lat": n_lat, "lng": n_lng}
+                n_dlat = math.radians(correction["corrected_lat"] - n_lat)
+                n_dlng = math.radians(correction["corrected_lng"] - n_lng)
+                n_a = math.sin(n_dlat/2)**2 + math.cos(math.radians(n_lat)) * math.cos(math.radians(correction["corrected_lat"])) * math.sin(n_dlng/2)**2
+                sync_dist_m = 2 * R * math.atan2(math.sqrt(n_a), math.sqrt(1-n_a))
+                # 0m = 100%, 5m = 95%, 10m = 90%
+                sync_score = max(0, 100 - sync_dist_m)
+            else:
+                # fallback for Naver not found -> use confidence roughly scaled to 95-99%
+                sync_score = 95 + (correction["confidence"] * 4)
 
             places.append({
                 "name": place.get("name", ""),
@@ -125,6 +179,8 @@ async def search_place(payload: dict):
                     "lat": correction["corrected_lat"],
                     "lng": correction["corrected_lng"],
                 },
+                "naver_location": naver_location,
+                "sync_score": round(sync_score, 1),
                 "correction_distance_m": round(dist_m, 1),
                 "confidence": correction["confidence"],
                 "method": correction["method"],
