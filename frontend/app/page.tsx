@@ -48,6 +48,7 @@ export default function SearchPage() {
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [selected, setSelected] = useState<Place | null>(null);
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<{ query: string; name: string; status: "verified" | "warning" | "not_found" }[]>([]);
   const [mapsKey, setMapsKey] = useState("");
   const [naverKey, setNaverKey] = useState("");
   const [gReady, setGReady] = useState(false);
@@ -116,7 +117,12 @@ export default function SearchPage() {
       });
       const data = await res.json();
       if (data.places?.length > 0) {
-        setSelected(data.places[0]);
+        const place = data.places[0];
+        setSelected(place);
+        setHistory(prev => [
+          { query: q, name: place.name, status: place.status },
+          ...prev.filter(h => h.query !== q),
+        ]);
       }
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
@@ -186,6 +192,12 @@ export default function SearchPage() {
     <div className="flex flex-col h-screen bg-[var(--bg)]">
       {/* Header */}
       <header className="flex items-center gap-3 px-5 py-3 border-b border-[var(--border)] bg-[var(--panel)] z-30 flex-shrink-0">
+        {selected && (
+          <button onClick={() => setSelected(null)}
+            className="text-lg text-[var(--text-muted)] hover:text-[var(--text)] transition-colors" aria-label="뒤로가기">
+            ←
+          </button>
+        )}
         <h1 className="text-lg font-bold whitespace-nowrap cursor-pointer" onClick={() => { setSelected(null); setQuery(""); setPredictions([]); }}>
           <span className="text-[var(--accent)]">Geo</span>Harness
         </h1>
@@ -213,94 +225,129 @@ export default function SearchPage() {
         </button>
       </header>
 
-      {/* Empty State */}
-      {!selected ? (
-        <div className="flex-1 flex flex-col items-center justify-center gap-5 text-center px-6">
-          <p className="text-5xl">🏪</p>
-          <h2 className="text-2xl font-bold">이 가게, 아직 있을까?</h2>
-          <p className="text-sm text-[var(--text-muted)] max-w-lg leading-relaxed">
-            구글 지도에서 찾은 한국 장소가 실제로 존재하는지<br />
-            네이버 데이터와 교차검증합니다.
-          </p>
-          <p className="text-xs text-[var(--text-muted)] max-w-md">
-            한국 내 구글 POI의 <strong className="text-[var(--warning)]">31%</strong>는 폐업·이전되었을 수 있습니다.
-          </p>
-          <div className="flex gap-2 mt-4 flex-wrap justify-center">
-            {["복식커피", "아무튼겨울", "뚝섬미술관", "하이라인 성수"].map((n) => (
-              <button key={n} onClick={() => { setQuery(n); handleSearch(n); }}
-                className="px-3 py-1.5 bg-[var(--border)] rounded-full text-xs hover:bg-[var(--accent-dim)] transition-colors">{n}</button>
-            ))}
-          </div>
-        </div>
-      ) : (
-        /* Result State */
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Verdict Card */}
-          {sc && (
-            <div className="flex-shrink-0 px-6 py-4 border-b border-[var(--border)] animate-fade-in" style={{ background: sc.bg }}>
-              <div className="flex items-start gap-4 max-w-4xl mx-auto">
-                {/* Status Badge */}
-                <div className="flex-shrink-0 text-center">
-                  <p className="text-4xl">{sc.icon}</p>
-                  <p className="text-xs font-bold mt-1" style={{ color: sc.color }}>{sc.label}</p>
-                  <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
-                    {Math.round(selected.status_confidence * 100)}%
-                  </p>
-                </div>
-                {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <h2 className="text-lg font-bold truncate">{selected.name}</h2>
-                  <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">{selected.address}</p>
-                  <p className="text-xs mt-1" style={{ color: sc.color }}>{selected.status_reason}</p>
+      {/* Main + Sidebar */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Main Content */}
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          {/* Empty State */}
+          {!selected ? (
+            <div className="flex-1 flex flex-col items-center justify-center gap-5 text-center px-6">
+              <p className="text-5xl">🏪</p>
+              <h2 className="text-2xl font-bold">이 가게, 아직 있을까?</h2>
+              <p className="text-sm text-[var(--text-muted)] max-w-lg leading-relaxed">
+                구글 지도에서 찾은 한국 장소가 실제로 존재하는지<br />
+                네이버 데이터와 교차검증합니다.
+              </p>
+              <p className="text-xs text-[var(--text-muted)] max-w-md">
+                한국 내 구글 POI의 <strong className="text-[var(--warning)]">31%</strong>는 폐업·이전되었을 수 있습니다.
+              </p>
+              <div className="flex gap-2 mt-4 flex-wrap justify-center">
+                {["복식커피", "아무튼겨울", "뚝섬미술관", "하이라인 성수"].map((n) => (
+                  <button key={n} onClick={() => { setQuery(n); handleSearch(n); }}
+                    className="px-3 py-1.5 bg-[var(--border)] rounded-full text-xs hover:bg-[var(--accent-dim)] transition-colors">{n}</button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* Result State */
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Verdict Card */}
+              {sc && (
+                <div className="flex-shrink-0 px-6 py-4 border-b border-[var(--border)] animate-fade-in" style={{ background: sc.bg }}>
+                  <div className="flex items-start gap-4 max-w-4xl mx-auto">
+                    {/* Status Badge */}
+                    <div className="flex-shrink-0 text-center">
+                      <p className="text-4xl">{sc.icon}</p>
+                      <p className="text-xs font-bold mt-1" style={{ color: sc.color }}>{sc.label}</p>
+                      <p className="text-[10px] text-[var(--text-muted)] mt-0.5">
+                        {Math.round(selected.status_confidence * 100)}%
+                      </p>
+                    </div>
+                    {/* Details */}
+                    <div className="flex-1 min-w-0">
+                      <h2 className="text-lg font-bold truncate">{selected.name}</h2>
+                      <p className="text-xs text-[var(--text-muted)] truncate mt-0.5">{selected.address}</p>
+                      <p className="text-xs mt-1" style={{ color: sc.color }}>{selected.status_reason}</p>
 
-                  {selected.naver_name && (
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-muted)]">
-                      <span>
-                        네이버 매칭: <strong className="text-[var(--text)]">{selected.naver_name}</strong>
-                        {selected.name_similarity != null && (
-                          <span className="ml-1 text-[var(--text-muted)]">(유사도 {Math.round(selected.name_similarity * 100)}%)</span>
-                        )}
-                      </span>
-                      {selected.naver_category && <span>{selected.naver_category}</span>}
-                      {selected.naver_phone && <span>📞 {selected.naver_phone}</span>}
-                      {selected.naver_link && (
-                        <a href={selected.naver_link} target="_blank" rel="noopener noreferrer"
-                          className="text-[var(--blue)] hover:underline">🔗 네이버 플레이스</a>
+                      {selected.naver_name && (
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--text-muted)]">
+                          <span>
+                            네이버 매칭: <strong className="text-[var(--text)]">{selected.naver_name}</strong>
+                            {selected.name_similarity != null && (
+                              <span className="ml-1 text-[var(--text-muted)]">(유사도 {Math.round(selected.name_similarity * 100)}%)</span>
+                            )}
+                          </span>
+                          {selected.naver_category && <span>{selected.naver_category}</span>}
+                          {selected.naver_phone && <span>📞 {selected.naver_phone}</span>}
+                          {selected.naver_link && (
+                            <a href={selected.naver_link} target="_blank" rel="noopener noreferrer"
+                              className="text-[var(--blue)] hover:underline">🔗 네이버 플레이스</a>
+                          )}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
+                </div>
+              )}
+
+              {/* Maps: Google (left) | Naver (right) */}
+              <div className="flex-1 flex min-h-0">
+                {/* Google Map (left) */}
+                <div className="w-1/2 relative border-r border-[var(--border)]">
+                  <div className="absolute top-3 left-3 z-10">
+                    <span className="bg-[var(--panel)] border border-[var(--border)] text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                      📍 구글 지도
+                    </span>
+                  </div>
+                  <div ref={gMapRef} className="w-full h-full" />
+                </div>
+                {/* Naver Map (right) */}
+                <div className="w-1/2 relative">
+                  <div className="absolute top-3 left-3 z-10">
+                    <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-lg ${
+                      selected.naver_location
+                        ? "bg-[var(--accent)] text-black"
+                        : "bg-[var(--panel)] border border-[var(--border)]"
+                    }`}>
+                      {selected.naver_location ? "✅ 네이버 확인 좌표" : "📍 네이버 (좌표 없음)"}
+                    </span>
+                  </div>
+                  <div ref={nMapRef} className="w-full h-full" />
                 </div>
               </div>
             </div>
           )}
-
-          {/* Maps: Google (left) | Naver (right) */}
-          <div className="flex-1 flex min-h-0">
-            {/* Google Map (left) */}
-            <div className="w-1/2 relative border-r border-[var(--border)]">
-              <div className="absolute top-3 left-3 z-10">
-                <span className="bg-[var(--panel)] border border-[var(--border)] text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
-                  📍 구글 지도
-                </span>
-              </div>
-              <div ref={gMapRef} className="w-full h-full" />
-            </div>
-            {/* Naver Map (right) */}
-            <div className="w-1/2 relative">
-              <div className="absolute top-3 left-3 z-10">
-                <span className={`text-xs font-bold px-3 py-1.5 rounded-full shadow-lg ${
-                  selected.naver_location
-                    ? "bg-[var(--accent)] text-black"
-                    : "bg-[var(--panel)] border border-[var(--border)]"
-                }`}>
-                  {selected.naver_location ? "✅ 네이버 확인 좌표" : "📍 네이버 (좌표 없음)"}
-                </span>
-              </div>
-              <div ref={nMapRef} className="w-full h-full" />
-            </div>
-          </div>
         </div>
-      )}
+
+        {/* Search History Sidebar */}
+        <aside className="w-56 flex-shrink-0 border-l border-[var(--border)] bg-[var(--panel)] flex flex-col">
+          <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--border)]">
+            <span className="text-xs font-bold text-[var(--text-muted)]">검색 기록</span>
+            {history.length > 0 && (
+              <button onClick={() => setHistory([])}
+                className="text-[var(--text-muted)] hover:text-[var(--text)] text-xs transition-colors" aria-label="전체 삭제">
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {history.length === 0 ? (
+              <p className="text-xs text-[var(--text-muted)] text-center mt-8 px-3">검색 기록이 없습니다</p>
+            ) : (
+              <ul>
+                {history.map((item, i) => (
+                  <li key={`${item.query}-${i}`}
+                    onClick={() => { setQuery(item.name); handleSearch(item.query); }}
+                    className="flex items-center gap-2 px-3 py-2 text-xs cursor-pointer hover:bg-[var(--accent-dim)] transition-colors border-b border-[var(--border)]">
+                    <span className="flex-shrink-0">{STATUS_CONFIG[item.status].icon}</span>
+                    <span className="truncate">{item.name}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </aside>
+      </div>
     </div>
   );
 }
