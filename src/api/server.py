@@ -87,6 +87,18 @@ if os.path.isdir(_static_dir):
 def health_check():
     return {"status": "ok", "version": "4.0"}
 
+@app.get("/naver-test")
+def naver_map_test():
+    """Minimal Naver Map test page."""
+    naver_key = settings.NAVER_MAP_CLIENT_ID or settings.NAVER_CLIENT_ID
+    return HTMLResponse(content=f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Naver Map Test</title>
+<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId={naver_key}"></script>
+<style>#map{{width:100vw;height:100vh}}</style></head>
+<body><div id="map"></div><script>
+try{{var m=new naver.maps.Map('map',{{center:new naver.maps.LatLng(37.5445,127.0567),zoom:17}});
+document.title='OK - Map loaded'}}catch(e){{document.title='ERR: '+e.message}}</script></body></html>""")
+
 # Next.js static export (검색 프로덕트 UI)
 NEXTJS_OUT = os.path.join(os.path.dirname(__file__), '..', '..', 'frontend', 'out')
 if os.path.exists(NEXTJS_OUT):
