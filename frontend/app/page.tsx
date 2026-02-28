@@ -13,6 +13,8 @@ interface Place {
   rating?: number;
   original: { lat: number; lng: number };
   corrected: { lat: number; lng: number };
+  naver_location: { lat: number; lng: number } | null;
+  sync_score: number | null;
   correction_distance_m: number;
   confidence: number;
   method: string;
@@ -94,7 +96,7 @@ export default function SearchPage() {
     try {
       const res = await fetch(`${API_BASE}/search`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q, region: "성수동" }),
+        body: JSON.stringify({ query: q }),
       });
       const data = await res.json();
       if (data.places?.length > 0) {
@@ -110,7 +112,7 @@ export default function SearchPage() {
     if (!selected) return;
     const corr = selected.corrected;
     const orig = selected.original;
-    const n_loc = (selected as any).naver_location || corr; // fallback to corrected if naver_location is somehow not attached
+    const n_loc = selected.naver_location ?? corr; // fallback to corrected if naver_location absent
 
     // Naver Map (검색된 네이버 좌표)
     if (nReady && nMapRef.current && window.naver && window.naver.maps) {
@@ -227,7 +229,9 @@ export default function SearchPage() {
             {/* 네이버 지도 (Naver Maps SDK) */}
             <div className="w-1/2 relative border-r-2 border-[var(--accent)]">
               <div className="absolute top-3 left-3 z-10 flex gap-2">
-                <span className="bg-[var(--accent)] text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">✅ 네이버 지도 (실제 위치 좌표)</span>
+                <span className="bg-[var(--accent)] text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">
+                  {selected.naver_location ? "✅ 네이버 지도 (실제 위치 좌표)" : "📍 네이버 지도 (보정 좌표 사용)"}
+                </span>
               </div>
               <div ref={nMapRef} className="w-full h-full" />
             </div>
@@ -241,12 +245,13 @@ export default function SearchPage() {
                 <div className="absolute top-3 right-3 z-10 bg-black/70 backdrop-blur-sm border border-[var(--border)] rounded-lg p-2.5 text-xs animate-in fade-in">
                   <div className="flex items-center gap-2 mb-1"><span className="w-3 h-3 rounded-full bg-[#ff5555] inline-block" /><span>구글 좌표 (틀림)</span></div>
                   <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#0df07a] inline-block" /><span>ML 보정 (실제)</span></div>
+                  {selected.naver_location && <div className="flex items-center gap-2 mt-1"><span className="w-3 h-3 rounded-full bg-[#4a9eff] inline-block" /><span>네이버 좌표</span></div>}
                 </div>
               )}
 
-              {/* Toggle ML Correction Overlay Button */}
+              {/* Toggle ML Correction Overlay Button — 우측 하단 */}
               {!showCorrection && (
-                <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 z-20">
+                <div className="absolute bottom-6 right-6 z-20">
                   <button
                     onClick={() => setShowCorrection(true)}
                     className="px-6 py-3 bg-[var(--accent)] text-black font-extrabold rounded-full shadow-[0_0_20px_rgba(13,240,122,0.6)] hover:scale-105 transition-all animate-pulse"
@@ -254,6 +259,15 @@ export default function SearchPage() {
                     ✨ ML 로직으로 좌표 보정하기
                   </button>
                 </div>
+              )}
+
+              {/* 길찾기 버튼 — 구글 지도 위 오버레이 (보정 후에만 표시) */}
+              {showCorrection && selected && (
+                <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.corrected.lat},${selected.corrected.lng}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="absolute bottom-6 right-6 z-20 px-5 py-3 bg-[var(--blue)] text-white font-bold rounded-full text-sm shadow-lg hover:bg-blue-500 hover:shadow-blue-500/50 transition-all flex items-center gap-2">
+                  <span className="text-lg">📍</span> 구글맵 길찾기
+                </a>
               )}
 
               <div ref={gMapRef} className="w-full h-full" />
@@ -268,10 +282,19 @@ export default function SearchPage() {
             {showCorrection ? (
               <div className="flex items-center gap-12 animate-in slide-in-from-right-8 opacity-100">
                 <div className="text-center flex-shrink-0">
-                  <p className={`text-4xl font-black ${(selected as any).sync_score > 90 ? "text-[var(--accent)]" : "text-[var(--warning)]"}`}>
-                    {(selected as any).sync_score ?? 95.0}<span className="text-xl font-normal ml-0.5">%</span>
-                  </p>
-                  <p className="text-xs font-medium text-[var(--text-muted)] mt-1 tracking-wider uppercase">네이버-구글 정합도</p>
+                  {selected.sync_score != null ? (
+                    <>
+                      <p className={`text-4xl font-black ${selected.sync_score > 90 ? "text-[var(--accent)]" : "text-[var(--warning)]"}`}>
+                        {selected.sync_score}<span className="text-xl font-normal ml-0.5">%</span>
+                      </p>
+                      <p className="text-xs font-medium text-[var(--text-muted)] mt-1 tracking-wider uppercase">네이버-구글 정합도</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-4xl font-black text-[var(--text-muted)]">N/A</p>
+                      <p className="text-xs font-medium text-[var(--text-muted)] mt-1 tracking-wider uppercase">네이버 데이터 없음</p>
+                    </>
+                  )}
                 </div>
 
                 <div className="text-center flex-shrink-0">
@@ -281,11 +304,6 @@ export default function SearchPage() {
                   <p className="text-xs font-medium text-[var(--text-muted)] mt-1 tracking-wider uppercase">공간 오차</p>
                 </div>
 
-                <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.corrected.lat},${selected.corrected.lng}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="px-6 py-3 bg-[var(--blue)] text-white font-bold rounded-xl text-sm hover:bg-blue-500 shadow-lg hover:shadow-blue-500/50 transition-all whitespace-nowrap flex items-center gap-2">
-                  <span className="text-lg">📍</span> 구글맵 길찾기
-                </a>
               </div>
             ) : (
               <div className="text-[var(--text-muted)] text-sm italic font-medium w-[400px] text-center">

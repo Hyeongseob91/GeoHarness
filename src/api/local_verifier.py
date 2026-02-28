@@ -126,13 +126,13 @@ async def verify_location(payload: dict):
 
 
 async def _search_naver_at_coords(lat: float, lng: float, query: str) -> Optional[Dict]:
-    """네이버 지역 검색 API로 보정된 좌표 근처의 상호 검색"""
-    url = "https://openapi.naver.com/v1/search/local.json"
+    """NCP Geocoding API로 보정된 좌표 근처의 주소 검색"""
+    url = "https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode"
     headers = {
-        "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
-        "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
+        "X-NCP-APIGW-API-KEY-ID": settings.NAVER_CLIENT_ID,
+        "X-NCP-APIGW-API-KEY": settings.NAVER_CLIENT_SECRET,
     }
-    params = {"query": query or f"{lat},{lng}", "display": 1}
+    params = {"query": query or f"{lat},{lng}"}
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -140,15 +140,15 @@ async def _search_naver_at_coords(lat: float, lng: float, query: str) -> Optiona
                 if resp.status != 200:
                     return None
                 data = await resp.json()
-                items = data.get("items", [])
-                if not items:
+                addresses = data.get("addresses", [])
+                if not addresses:
                     return None
-                first = items[0]
+                first = addresses[0]
                 return {
-                    "name": first.get("title", "").replace("<b>", "").replace("</b>", ""),
-                    "address": first.get("address", ""),
+                    "name": query,
+                    "address": first.get("jibunAddress", ""),
                     "road_address": first.get("roadAddress", ""),
                 }
     except Exception as e:
-        logger.error(f"Naver search error: {e}")
+        logger.error(f"NCP Geocoding error: {e}")
         return None

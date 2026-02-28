@@ -1,13 +1,12 @@
 """
-GeoHarness v2.0: Naver Local Search API Collector
+GeoHarness v3.0: Naver NCP Geocoding Collector
 
 목적:
-네이버 검색 API(Open API)를 사용하여 Google에서 추출한 POI 이름으로
-네이버 지도에서 동일 장소를 검색, 네이버 좌표(KATECH/TM128)를 수집합니다.
+NCP Geocoding API를 사용하여 Google에서 추출한 POI 이름으로
+네이버 지도의 WGS84 좌표를 수집합니다.
 
 API 신청:
-    https://developers.naver.com/apps/#/register?api=search
-    - 검색(Search) > 지역(Local) 선택
+    https://console.ncloud.com → Maps > Geocoding 활성화
     - Client ID와 Client Secret 발급받아 .env에 설정
 
 사용법:
@@ -36,50 +35,47 @@ load_dotenv()
 
 async def search_naver_local(session: aiohttp.ClientSession, query: str) -> Dict | None:
     """
-    네이버 지역 검색 API (공식 Open API)
-    https://developers.naver.com/docs/serviceapi/search/local/local.md
-    
-    Returns: { n_name, n_mapx (KATECH x), n_mapy (KATECH y), n_address, n_road_address }
+    NCP Geocoding API로 장소명 → WGS84 좌표 조회
+
+    Returns: { n_name, n_lng (WGS84), n_lat (WGS84), n_address, n_road_address }
     """
     if not settings.NAVER_CLIENT_ID or settings.NAVER_CLIENT_ID.startswith("your-"):
-        logger.warning("NAVER_CLIENT_ID is missing. Skipping Naver search.")
+        logger.warning("NAVER_CLIENT_ID is missing. Skipping Naver geocoding.")
         return None
     if not settings.NAVER_CLIENT_SECRET or settings.NAVER_CLIENT_SECRET.startswith("your-"):
-        logger.warning("NAVER_CLIENT_SECRET is missing. Skipping Naver search.")
+        logger.warning("NAVER_CLIENT_SECRET is missing. Skipping Naver geocoding.")
         return None
 
-    url = "https://openapi.naver.com/v1/search/local.json"
+    url = "https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode"
     headers = {
-        "X-Naver-Client-Id": settings.NAVER_CLIENT_ID,
-        "X-Naver-Client-Secret": settings.NAVER_CLIENT_SECRET,
+        "X-NCP-APIGW-API-KEY-ID": settings.NAVER_CLIENT_ID,
+        "X-NCP-APIGW-API-KEY": settings.NAVER_CLIENT_SECRET,
     }
-    params = {
-        "query": query,
-        "display": 1,
-        "sort": "random",
-    }
+    params = {"query": query}
 
     try:
         async with session.get(url, headers=headers, params=params) as response:
             if response.status != 200:
-                logger.warning(f"[Naver] API request failed for '{query}' with status: {response.status}")
+                logger.warning(f"[NCP] Geocoding failed for '{query}' with status: {response.status}")
                 return None
 
             data = await response.json()
-            items = data.get("items", [])
-            if not items:
+            addresses = data.get("addresses", [])
+            if not addresses:
                 return None
 
-            first = items[0]
+            first = addresses[0]
+            n_lng = float(first["x"])
+            n_lat = float(first["y"])
             return {
-                "n_name": first.get("title", "").replace("<b>", "").replace("</b>", ""),
-                "n_mapx": int(first.get("mapx", 0)),  # KATECH x coordinate
-                "n_mapy": int(first.get("mapy", 0)),  # KATECH y coordinate
-                "n_address": first.get("address", ""),
+                "n_name": query,
+                "n_lng": n_lng,
+                "n_lat": n_lat,
+                "n_address": first.get("jibunAddress", ""),
                 "n_road_address": first.get("roadAddress", ""),
             }
     except Exception as e:
-        logger.error(f"[Naver] Error searching '{query}': {e}")
+        logger.error(f"[NCP] Error geocoding '{query}': {e}")
         return None
 
 
@@ -88,11 +84,11 @@ async def build_naver_paired_dataset(
     output_path: str = "data/ml_dataset.csv"
 ):
     """
-    Google POI 기준 데이터를 읽어서 네이버 지역 검색 API로 매칭하여
+    Google POI 기준 데이터를 읽어서 NCP Geocoding API로 매칭하여
     최종 ML 학습 데이터셋을 생성합니다.
-    
+
     Output columns:
-        poi_name, g_lat, g_lng, n_mapx, n_mapy, n_name, n_address, poi_type, search_region
+        poi_name, g_lat, g_lng, n_lat, n_lng, n_name, n_address, poi_type, search_region
     """
     logger.info("Building Naver-paired ML Dataset...")
 
@@ -120,13 +116,13 @@ async def build_naver_paired_dataset(
 
             naver_result = await search_naver_local(session, search_query)
 
-            if naver_result and naver_result["n_mapx"] > 0 and naver_result["n_mapy"] > 0:
+            if naver_result and naver_result["n_lat"] and naver_result["n_lng"]:
                 dataset.append({
                     "poi_name": poi["poi_name"],
                     "g_lat": float(poi["g_lat"]),
                     "g_lng": float(poi["g_lng"]),
-                    "n_mapx": naver_result["n_mapx"],
-                    "n_mapy": naver_result["n_mapy"],
+                    "n_lat": naver_result["n_lat"],
+                    "n_lng": naver_result["n_lng"],
                     "n_name": naver_result["n_name"],
                     "n_address": naver_result["n_address"],
                     "poi_type": poi["poi_type"],

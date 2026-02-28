@@ -16,6 +16,7 @@ import aiohttp
 from fastapi import APIRouter, Query
 
 from engine.inference import predict_offset
+from engine.metrics import haversine_m
 from shared.config import settings
 
 logger = logging.getLogger("SearchAPI")
@@ -79,8 +80,11 @@ async def search_place(payload: dict):
     if not api_key:
         return {"error": "GOOGLE_MAPS_KEY not configured", "places": []}
         
-    naver_client_id = settings.NAVER_CLIENT_ID
-    naver_client_secret = settings.NAVER_CLIENT_SECRET
+    # API keys
+    naver_search_id = settings.NAVER_SEARCH_CLIENT_ID
+    naver_search_secret = settings.NAVER_SEARCH_CLIENT_SECRET
+    ncp_id = settings.NAVER_CLIENT_ID
+    ncp_secret = settings.NAVER_CLIENT_SECRET
 
     # Prepare Tasks
     google_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
@@ -90,52 +94,85 @@ async def search_place(payload: dict):
         "language": "ko",
         "region": "kr",
     }
-    
-    naver_url = "https://openapi.naver.com/v1/search/local.json"
-    naver_headers = {
-        "X-Naver-Client-Id": naver_client_id,
-        "X-Naver-Client-Secret": naver_client_secret
+
+    # 1차: Naver Search Local API (장소명 검색에 최적)
+    naver_search_url = "https://openapi.naver.com/v1/search/local.json"
+    naver_search_headers = {
+        "X-Naver-Client-Id": naver_search_id,
+        "X-Naver-Client-Secret": naver_search_secret,
     }
-    naver_params = {
-        "query": full_query,
-        "display": 1
-    }
+    naver_search_params = {"query": full_query, "display": 1}
+    use_naver_search = bool(naver_search_id and naver_search_secret)
 
     try:
         import asyncio
         async with aiohttp.ClientSession() as session:
             g_task = session.get(google_url, params=google_params)
-            n_task = None
-            if naver_client_id and naver_client_secret:
-                n_task = session.get(naver_url, headers=naver_headers, params=naver_params)
-            
-            if n_task:
+
+            if use_naver_search:
+                n_task = session.get(
+                    naver_search_url,
+                    headers=naver_search_headers,
+                    params=naver_search_params,
+                )
                 g_resp, n_resp = await asyncio.gather(g_task, n_task)
             else:
                 g_resp = await g_task
                 n_resp = None
-            
+
             if g_resp.status != 200:
                 return {"error": f"Google API error: {g_resp.status}", "places": []}
             data = await g_resp.json()
-            
-            naver_data = None
+
+            naver_search_data = None
             if n_resp and n_resp.status == 200:
-                naver_data = await n_resp.json()
+                naver_search_data = await n_resp.json()
 
         results = data.get("results", [])
         places = []
-        
-        # Get first Naver Result if exists
+
+        # 1차: Naver Search Local API 좌표 파싱 (mapx/mapy = WGS84 × 10^7)
         n_lat, n_lng = None, None
-        if naver_data and naver_data.get("items") and len(naver_data["items"]) > 0:
-            n_item = naver_data["items"][0]
-            try:
-                # Naver mapx/mapy are KATEC or WGS84 * 10^7. Let's assume WGS84*10^7 based on recent APIs
-                n_lng = float(n_item["mapx"]) / 10000000.0
-                n_lat = float(n_item["mapy"]) / 10000000.0
-            except (ValueError, KeyError):
-                pass
+        if naver_search_data:
+            items = naver_search_data.get("items", [])
+            if items:
+                try:
+                    raw_x = int(items[0].get("mapx", 0))
+                    raw_y = int(items[0].get("mapy", 0))
+                    if raw_x and raw_y:
+                        n_lng = raw_x / 10_000_000.0
+                        n_lat = raw_y / 10_000_000.0
+                        if not (33.0 <= n_lat <= 43.0 and 124.0 <= n_lng <= 132.0):
+                            n_lat, n_lng = None, None
+                except (ValueError, TypeError):
+                    pass
+
+        # 2차 폴백: NCP Geocoding (Naver Search 실패 시, formatted_address로 재시도)
+        if n_lat is None and ncp_id and ncp_secret and results:
+            address_str = results[0].get("formatted_address", "")
+            if address_str:
+                ncp_url = "https://naveropenapi.apigw.ntruss.com/map-geocode/v2/geocode"
+                ncp_headers = {
+                    "X-NCP-APIGW-API-KEY-ID": ncp_id,
+                    "X-NCP-APIGW-API-KEY": ncp_secret,
+                }
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            ncp_url,
+                            headers=ncp_headers,
+                            params={"query": address_str},
+                        ) as ncp_resp:
+                            if ncp_resp.status == 200:
+                                ncp_data = await ncp_resp.json()
+                                addrs = ncp_data.get("addresses", [])
+                                if addrs:
+                                    n_lng = float(addrs[0]["x"])
+                                    n_lat = float(addrs[0]["y"])
+                                    if not (33.0 <= n_lat <= 43.0 and 124.0 <= n_lng <= 132.0):
+                                        n_lat, n_lng = None, None
+                except Exception as e:
+                    logger.warning(f"NCP Geocoding fallback failed: {e}")
 
         for place in results[:5]:  # 상위 5건만
             geo = place.get("geometry", {}).get("location", {})
@@ -146,27 +183,16 @@ async def search_place(payload: dict):
             correction = predict_offset(g_lat, g_lng)
 
             # 보정 거리 계산
-            import math
-            R = 6371000
-            dlat = math.radians(correction["corrected_lat"] - g_lat)
-            dlng = math.radians(correction["corrected_lng"] - g_lng)
-            a = math.sin(dlat/2)**2 + math.cos(math.radians(g_lat)) * math.cos(math.radians(correction["corrected_lat"])) * math.sin(dlng/2)**2
-            dist_m = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
-            
+            dist_m = haversine_m(g_lat, g_lng, correction["corrected_lat"], correction["corrected_lng"])
+
             # Sync 거리 및 점수 계산 (Naver 좌표가 있을 경우)
-            sync_score = 0
+            sync_score = None
             naver_location = None
-            if n_lat and n_lng:
+            if n_lat is not None and n_lng is not None:
                 naver_location = {"lat": n_lat, "lng": n_lng}
-                n_dlat = math.radians(correction["corrected_lat"] - n_lat)
-                n_dlng = math.radians(correction["corrected_lng"] - n_lng)
-                n_a = math.sin(n_dlat/2)**2 + math.cos(math.radians(n_lat)) * math.cos(math.radians(correction["corrected_lat"])) * math.sin(n_dlng/2)**2
-                sync_dist_m = 2 * R * math.atan2(math.sqrt(n_a), math.sqrt(1-n_a))
+                sync_dist_m = haversine_m(correction["corrected_lat"], correction["corrected_lng"], n_lat, n_lng)
                 # 0m = 100%, 5m = 95%, 10m = 90%
                 sync_score = max(0, 100 - sync_dist_m)
-            else:
-                # fallback for Naver not found -> use confidence roughly scaled to 95-99%
-                sync_score = 95 + (correction["confidence"] * 4)
 
             places.append({
                 "name": place.get("name", ""),
@@ -180,7 +206,7 @@ async def search_place(payload: dict):
                     "lng": correction["corrected_lng"],
                 },
                 "naver_location": naver_location,
-                "sync_score": round(sync_score, 1),
+                "sync_score": round(sync_score, 1) if sync_score is not None else None,
                 "correction_distance_m": round(dist_m, 1),
                 "confidence": correction["confidence"],
                 "method": correction["method"],

@@ -6,8 +6,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 async def main():
-    client_id = os.getenv("NAVER_CLIENT_ID")
-    client_secret = os.getenv("NAVER_CLIENT_SECRET")
+    client_id = os.getenv("NAVER_SEARCH_CLIENT_ID")
+    client_secret = os.getenv("NAVER_SEARCH_CLIENT_SECRET")
     
     url = "https://openapi.naver.com/v1/search/local.json"
     headers = {

@@ -17,14 +17,25 @@ from dotenv import load_dotenv
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-# Default MVP model per PRD
-try:
-    gemini_model = genai.GenerativeModel("gemini-2.0-flash")
-except Exception as e:
-    gemini_model = None
-    print(f"Failed to load genai module completely: {e}")
+_gemini_model = None
+_gemini_initialized = False
+
+
+def _get_gemini_model():
+    """Lazy-init Gemini model on first call (avoids crash when API key is absent)."""
+    global _gemini_model, _gemini_initialized
+    if _gemini_initialized:
+        return _gemini_model
+    _gemini_initialized = True
+    if not GEMINI_API_KEY:
+        return None
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        _gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+    except Exception as e:
+        print(f"Failed to initialize Gemini model: {e}")
+        _gemini_model = None
+    return _gemini_model
 
 app = FastAPI(title="GeoHarness Spatial-Sync API MVP v4.0")
 
@@ -68,7 +79,9 @@ load_landmarks()
 from fastapi.staticfiles import StaticFiles
 
 # Legacy Algorithm Dashboard
-app.mount("/static", StaticFiles(directory="src/static"), name="static")
+_static_dir = os.path.join(os.path.dirname(__file__), "..", "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.get("/health")
 def health_check():
@@ -141,6 +154,7 @@ def transform_endpoint(payload: Dict[str, Any] = Body(...)):
             "gemini_status": "skipped"
         }
 
+        gemini_model = _get_gemini_model()
         if run_harness and gemini_model:
             input_context = {"lat": lat, "lng": lng, "label": "API Request Point"}
             rmse_pre, _, _, _, _ = execute_gemini_correction_loop(gemini_model, input_context, ground_truth, max_iterations=0)
@@ -261,6 +275,6 @@ def get_maps_keys_endpoint():
         "success": True,
         "data": {
             "google_maps_key": os.getenv("GOOGLE_MAPS_KEY", ""),
-            "naver_client_id": os.getenv("NAVER_CLIENT_ID", "")
+            "naver_client_id": settings.NAVER_CLIENT_ID
         }
     }
