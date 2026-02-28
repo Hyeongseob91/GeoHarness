@@ -275,6 +275,6 @@ def get_maps_keys_endpoint():
         "success": True,
         "data": {
             "google_maps_key": os.getenv("GOOGLE_MAPS_KEY", ""),
-            "naver_client_id": settings.NAVER_CLIENT_ID
+            "naver_client_id": settings.NAVER_MAP_CLIENT_ID or settings.NAVER_CLIENT_ID
         }
     }
