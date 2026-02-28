@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GeoHarness Spatial-Sync v4.0 (MVP)</title>
+
+    <!-- Google Maps SDK -->
+    <!-- Note: We use async/defer here but realistically the USER must supply an API key -->
+    <script id="gmaps-script" async defer></script>
+
+    <style>
+        :root {
+            --primary: #2b5cff;
+            --bg: #1a1a1a;
+            --panel: #262626;
+            --text: #ffffff;
+            --danger: rgba(255, 0, 0, 0.85);
+            --success: #0df07a;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        header {
+            padding: 1rem 2rem;
+            background: var(--panel);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #333;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        input[type="number"],
+        input[type="text"] {
+            background: #111;
+            border: 1px solid #444;
+            color: white;
+            padding: 0.5rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            width: 140px;
+        }
+
+        button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1.2rem;
+            border-radius: 4px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #1a4ce6;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        main {
+            flex: 1;
+            position: relative;
+        }
+
+        .split-view {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            height: 100%;
+            width: 100%;
+        }
+
+        .map-container {
+            position: relative;
+            height: 100%;
+            width: 100%;
+            border-right: 2px solid #333;
+        }
+
+        .map-container:last-child {
+            border-right: none;
+        }
+
+        .map-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        /* Overlays */
+        #score-overlay {
+            position: absolute;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.9);
+            border: 1px solid #444;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 8px;
+            padding: 1.5rem;
+            width: 80%;
+            max-width: 800px;
+            z-index: 20;
+            display: none;
+            flex-direction: column;
+            gap: 1rem;
+            backdrop-filter: blur(10px);
+        }
+
+        .overlay-metrics {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+            padding-bottom: 1rem;
+        }
+
+        .metric-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .metric-label {
+            font-size: 0.8rem;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+        }
+
+        .text-success {
+            color: var(--success);
+        }
+
+        .text-warning {
+            color: #ffab00;
+        }
+
+        #gemini-reasoning {
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: #ddd;
+        }
+
+        .gemini-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: linear-gradient(90deg, #1fa2ff, #12d8fa, #a6ffcb);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-weight: bold;
+            margin-bottom: 6px;
+        }
+
+        /* Error Overlay */
+        #error-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--danger);
+            z-index: 100;
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        #error-overlay h2 {
+            margin-bottom: 1rem;
+            font-size: 2rem;
+        }
+
+        #error-overlay p {
+            font-size: 1.2rem;
+        }
+
+        #error-close {
+            margin-top: 2rem;
+            background: rgba(0, 0, 0, 0.5);
+        }
+
+        /* Loader */
+        .loader {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <h1>GeoHarness Spatial-Sync v4.0</h1>
+        <div class="controls">
+            <input type="text" id="api-key" placeholder="Google Maps API Key" />
+            <button id="btn-init-map">Init Maps</button>
+
+            <div style="width: 1px; height: 24px; background: #444; margin: 0 10px;"></div>
+
+            <input type="number" id="input-lat" placeholder="Latitude (37.4979)" step="0.0001" value="37.49794" />
+            <input type="number" id="input-lng" placeholder="Longitude (127.0276)" step="0.0001" value="127.02764" />
+            <button id="btn-sync">
+                <span>Run Sync</span>
+                <div class="loader" id="sync-loader"></div>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <div class="split-view">
+
+            <!-- Google Original View -->
+            <div class="map-container">
+                <div class="map-label">Google Maps (WGS84 Source)</div>
+                <div id="map-left" style="width:100%; height:100%;"></div>
+            </div>
+
+            <!-- Naver Substitute View -->
+            <div class="map-container">
+                <div class="map-label">"Naver" Surrogate (Terrain / Target)</div>
+                <div id="map-right" style="width:100%; height:100%;"></div>
+            </div>
+
+        </div>
+
+        <!-- Results Overlay -->
+        <div id="score-overlay">
+            <div class="overlay-metrics">
+                <div class="metric-group">
+                    <span class="metric-label">Harness Score</span>
+                    <span class="metric-value" id="val-score">-</span>
+                </div>
+                <div class="metric-group">
+                    <span class="metric-label">RMSE Before</span>
+                    <span class="metric-value" id="val-rmse-pre">- m</span>
+                </div>
+                <div class="metric-group">
+                    <span class="metric-label">RMSE After</span>
+                    <span class="metric-value text-success" id="val-rmse-post">- m</span>
+                </div>
+                <div class="metric-group">
+                    <span class="metric-label">Iterations</span>
+                    <span class="metric-value" id="val-iter">0</span>
+                </div>
+            </div>
+
+            <div>
+                <div class="gemini-badge">✨ Gemini Self-Correction Reasoning</div>
+                <div id="gemini-reasoning">Waiting for pipeline execution...</div>
+            </div>
+        </div>
+
+        <!-- Error Overlay -->
+        <div id="error-overlay">
+            <h2>Pipeline Error</h2>
+            <p id="error-message">Could not complete synchronization process.</p>
+            <button id="error-close">Dismiss</button>
+        </div>
+    </main>
+
+    <script>
+        let mapLeft, mapRight;
+        let markerLeft, markerRight;
+        const API_BASE = "http://localhost:8000/api/v1";
+
+        // Initialize Maps SDK dynamically based on user input for hackathon security bypassing
+        document.getElementById('btn-init-map').addEventListener('click', () => {
+            const key = document.getElementById('api-key').value;
+            if (!key) return alert("Please provide a valid Google Maps API Key.");
+
+            window.initMaps = initializeMapsLayout;
+            const script = document.getElementById('gmaps-script');
+            script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&callback=initMaps`;
+        });
+
+        function initializeMapsLayout() {
+            const gangnam = { lat: 37.49794, lng: 127.02764 };
+
+            // Left Map (Google Default)
+            mapLeft = new google.maps.Map(document.getElementById("map-left"), {
+                center: gangnam,
+                zoom: 18,
+                disableDefaultUI: true,
+                mapTypeId: "roadmap"
+            });
+
+            markerLeft = new google.maps.Marker({
+                position: gangnam,
+                map: mapLeft,
+                title: "Input Coordinate"
+            });
+
+            // Right Map (Naver Surrogate - Terrain/Satellite)
+            mapRight = new google.maps.Map(document.getElementById("map-right"), {
+                center: gangnam,
+                zoom: 18,
+                disableDefaultUI: true,
+                mapTypeId: "satellite"
+            });
+
+            // Use blue icon to denote corrected/target
+            markerRight = new google.maps.Marker({
+                position: gangnam,
+                map: mapRight,
+                icon: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+                title: "Corrected Coordinate"
+            });
+
+            // Sync Pan/Zoom between the two maps (like a true split screen)
+            mapLeft.addListener('bounds_changed', () => mapRight.setZoom(mapLeft.getZoom()));
+        }
+
+        // Run Sync Pipeline Execution
+        document.getElementById('btn-sync').addEventListener('click', async () => {
+            const lat = parseFloat(document.getElementById('input-lat').value);
+            const lng = parseFloat(document.getElementById('input-lng').value);
+
+            if (isNaN(lat) || isNaN(lng)) {
+                showError("Invalid coordinate input format. Use valid floats.");
+                return;
+            }
+
+            const btnSync = document.getElementById('btn-sync');
+            const loader = document.getElementById('sync-loader');
+            const btnText = btnSync.querySelector('span');
+
+            btnSync.disabled = true;
+            btnText.style.display = 'none';
+            loader.style.display = 'block';
+            hideError();
+            document.getElementById('score-overlay').style.display = 'none';
+
+            try {
+                const response = await fetch(`${API_BASE}/transform`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ latitude: lat, longitude: lng, run_harness: true })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.detail || `HTTP Error ${response.status}`);
+                }
+
+                // Update Maps
+                const inputPos = { lat: data.data.input.latitude, lng: data.data.input.longitude };
+
+                // Final position uses original if gemini fails, or last iteration lat offset. 
+                // For the mock, the dummy GT is processed.
+                const harness = data.data.harness;
+                let finalLat = lat;
+                let finalLng = lng;
+
+                if (harness.corrections.length > 0) {
+                    const latest = harness.corrections[harness.corrections.length - 1];
+                    finalLat += latest.lat_offset;
+                    finalLng += latest.lng_offset;
+                }
+
+                const finalPos = { lat: finalLat, lng: finalLng };
+
+                mapLeft.panTo(inputPos);
+                markerLeft.setPosition(inputPos);
+
+                mapRight.panTo(finalPos);
+                markerRight.setPosition(finalPos);
+
+                // Update Overlay Data
+                document.getElementById('val-score').innerText = harness.harness_score;
+                document.getElementById('val-rmse-pre').innerText = harness.rmse_before_m.toFixed(2) + " m";
+                document.getElementById('val-rmse-post').innerText = harness.rmse_after_m.toFixed(2) + " m";
+                document.getElementById('val-iter').innerText = harness.iterations;
+
+                const rEl = document.getElementById('gemini-reasoning');
+                if (harness.gemini_status === "success") {
+                    rEl.innerText = harness.gemini_reasoning;
+                    rEl.style.color = "#ddd";
+                } else {
+                    rEl.innerText = `Gemini Pipeline fallback executed: Status = ${harness.gemini_status}. Showing PyProj uncorrected offsets only.`;
+                    rEl.style.color = "var(--warning)";
+                }
+
+                document.getElementById('score-overlay').style.display = 'flex';
+
+            } catch (err) {
+                console.error(err);
+                showError(err.message);
+            } finally {
+                btnSync.disabled = false;
+                btnText.style.display = 'inline';
+                loader.style.display = 'none';
+            }
+        });
+
+        function showError(msg) {
+            document.getElementById('error-message').innerText = msg;
+            document.getElementById('error-overlay').style.display = 'flex';
+            document.getElementById('score-overlay').style.display = 'none';
+        }
+
+        document.getElementById('error-close').addEventListener('click', () => hideError());
+        function hideError() { document.getElementById('error-overlay').style.display = 'none'; }
+
+    </script>
+</body>
+
+</html>
