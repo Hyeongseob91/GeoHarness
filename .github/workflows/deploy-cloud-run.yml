@@ -67,23 +67,21 @@ jobs:
             VWORLD_API_KEY=${{ secrets.VWORLD_API_KEY }}
           flags: '--allow-unauthenticated'
 
-      # 4. Show Cloud Build logs on failure for debugging
-      - name: Show Cloud Build logs
+      # 4. Show debug logs on failure
+      - name: Show Cloud Run & Build logs
         if: failure()
         run: |
+          echo "=== Cloud Run Service Logs ==="
+          gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=${{ env.SERVICE_NAME }}" \
+            --project=${{ env.PROJECT_ID }} --limit=50 --format="value(textPayload)" 2>/dev/null || \
+          echo "Could not retrieve Cloud Run logs"
+
+          echo ""
+          echo "=== Cloud Build Log ==="
           BUILD_ID=$(gcloud builds list --project=${{ env.PROJECT_ID }} --region=${{ env.REGION }} --limit=1 --format="value(id)" 2>/dev/null || true)
           if [ -n "$BUILD_ID" ]; then
-            echo "=== Cloud Build Log (Build ID: $BUILD_ID) ==="
             gcloud builds log "$BUILD_ID" --project=${{ env.PROJECT_ID }} --region=${{ env.REGION }} 2>/dev/null || \
             gcloud builds log "$BUILD_ID" --project=${{ env.PROJECT_ID }} 2>/dev/null || \
-            echo "Could not retrieve build logs. Check GCP Console."
-          else
-            echo "No recent builds found. Trying without region filter..."
-            BUILD_ID=$(gcloud builds list --project=${{ env.PROJECT_ID }} --limit=1 --format="value(id)" 2>/dev/null || true)
-            if [ -n "$BUILD_ID" ]; then
-              gcloud builds log "$BUILD_ID" --project=${{ env.PROJECT_ID }} 2>/dev/null || echo "Could not retrieve logs."
-            else
-              echo "No builds found in project ${{ env.PROJECT_ID }}"
-            fi
+            echo "Could not retrieve build logs."
           fi
 
