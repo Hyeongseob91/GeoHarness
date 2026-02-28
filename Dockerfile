@@ -18,7 +18,7 @@ ENV PYTHONPATH=/app/src
 ENV PORT=8080
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 COPY --from=frontend /frontend/out /app/frontend/out
 EXPOSE 8080
