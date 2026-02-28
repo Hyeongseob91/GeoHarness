@@ -4,19 +4,7 @@ Unit tests for GeoHarness Spatial-Sync Core Engines.
 
 import pytest
 import sys
-from unittest.mock import MagicMock
 
-# --- Mock pyproj so tests run without the heavy binary ---
-mock_pyproj = MagicMock()
-mock_transformer = MagicMock()
-
-# When we call 'transform' on the MOCK forward transformer
-# lat 37.4, lng 127.0 => (1000000, 2000000) roughly
-mock_transformer.transform.side_effect = lambda xx, yy: (1000000.0, 2000000.0) if hasattr(xx, 'conjugate') else (yy, xx)
-mock_pyproj.Transformer.from_crs.return_value = mock_transformer
-
-sys.modules['pyproj'] = mock_pyproj
-# --------------------------------------------------------
 
 from engine.metrics import haversine_m, calculate_rmse, calculate_harness_score
 from engine.transform import transform_4326_to_5179, transform_5179_to_4326, run_transformation_pipeline
