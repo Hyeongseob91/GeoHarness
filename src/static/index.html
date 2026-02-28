@@ -4,7 +4,11 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GeoHarness Spatial-Sync v4.0 (MVP)</title>
+    <title>GeoHarness Spatial-Sync v4.0 — Algorithm Verification Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
 
     <!-- Google Maps SDK -->
     <!-- Note: We use async/defer here but realistically the USER must supply an API key -->
@@ -37,6 +41,57 @@
             flex-direction: column;
             height: 100vh;
             overflow: hidden;
+        }
+
+        .btn-ml {
+            background: linear-gradient(90deg, #00c9ff, #92fe9d);
+            color: #111;
+            font-weight: 600;
+        }
+
+        .btn-ml:hover {
+            background: linear-gradient(90deg, #00b4e6, #7de88a);
+        }
+
+        .model-badge {
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+
+        .model-loaded {
+            background: rgba(13, 240, 122, 0.2);
+            color: var(--success);
+        }
+
+        .model-fallback {
+            background: rgba(255, 171, 0, 0.2);
+            color: #ffab00;
+        }
+
+        .correction-arrow {
+            position: absolute;
+            z-index: 999;
+            pointer-events: none;
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .algo-step {
+            animation: fadeInUp 0.3s ease-out;
+            padding: 3px 0;
+            border-bottom: 1px dotted #222;
         }
 
         header {
@@ -300,11 +355,12 @@
 <body>
 
     <header>
-        <h1>GeoHarness Spatial-Sync v4.0</h1>
+        <h1>🌐 GeoHarness <span style="font-size:0.7em;color:#888;">Algorithm Verification Dashboard</span></h1>
         <div class="controls">
-            <div style="color: #888; font-size: 0.9rem; margin-right: 15px;">
-                <span id="status-google">⚪ Google SDK</span> |
-                <span id="status-naver">⚪ Naver SDK</span>
+            <div style="color: #888; font-size: 0.9rem; margin-right: 10px;">
+                <span id="status-google">⚪ Google</span> |
+                <span id="status-naver">⚪ Naver</span> |
+                <span id="status-ml" class="model-badge model-fallback">⚪ ML</span>
             </div>
 
             <select id="landmark-select"
@@ -312,11 +368,14 @@
                 <option value="">Custom Location</option>
             </select>
 
-            <input type="number" id="input-lat" placeholder="Latitude (37.4979)" step="0.0001" value="37.49794" />
-            <input type="number" id="input-lng" placeholder="Longitude (127.0276)" step="0.0001" value="127.02764" />
+            <input type="number" id="input-lat" placeholder="Latitude" step="0.0001" value="37.5442" />
+            <input type="number" id="input-lng" placeholder="Longitude" step="0.0001" value="127.0499" />
             <button id="btn-sync">
                 <span>Run Sync</span>
                 <div class="loader" id="sync-loader"></div>
+            </button>
+            <button id="btn-ml" class="btn-ml">
+                ⚡ ML Offset
             </button>
         </div>
     </header>
@@ -359,18 +418,30 @@
                     <span class="metric-value text-success" id="val-rmse-post">- m</span>
                 </div>
                 <div class="metric-group">
-                    <span class="metric-label">AI Loops</span>
-                    <span class="metric-value" id="val-iter">0</span>
+                    <span class="metric-label">ML Method</span>
+                    <span class="metric-value" id="val-method" style="font-size:1rem;">-</span>
+                </div>
+                <div class="metric-group">
+                    <span class="metric-label">Offset (m)</span>
+                    <span class="metric-value text-success" id="val-offset">-</span>
                 </div>
             </div>
 
-            <div style="background: #151515; border: 1px solid #333; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.85rem; max-height: 180px; overflow-y: auto;"
+            <div style="background: #0a0a0a; border: 1px solid #333; border-radius: 6px; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; max-height: 200px; overflow-y: auto;"
                 id="algo-timeline">
-                <div style="color: #666;">Waiting for 'Run Sync' execution...</div>
+                <div style="color: #555;">▶ 'Run Sync' 또는 '⚡ ML Offset' 을 클릭하세요...</div>
+            </div>
+
+            <!-- ML Verification Result -->
+            <div id="ml-verify-result"
+                style="display:none; margin-top:0.5rem; background:#0f1a0f; border:1px solid #1a3a1a; border-radius:6px; padding:10px;">
+                <div style="color:#0df07a; font-weight:600; margin-bottom:4px;">📍 네이버 역지오코딩 결과</div>
+                <div id="naver-match-name" style="font-size:1.1rem; font-weight:600;">-</div>
+                <div id="naver-match-addr" style="font-size:0.8rem; color:#aaa;">-</div>
             </div>
 
             <div style="margin-top: 0.5rem;">
-                <div class="gemini-badge">✨ CoT Reasoning Output</div>
+                <div class="gemini-badge">✨ AI Reasoning / ML Inference</div>
                 <div id="gemini-reasoning" style="font-size: 0.85rem;">-</div>
             </div>
         </div>
@@ -428,7 +499,13 @@
         // --------------------------------
         let mapLeft, mapRight;
         let markerLeft, markerRight;
-        const API_BASE = "http://localhost:8000/api/v1";
+        const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+            ? `${location.protocol}//${location.host}/api/v1`
+            : `${location.origin}/api/v1`;
+
+        let correctionMarkerGoogle = null;
+        let correctionLineGoogle = null;
+        let correctionMarkerNaver = null;
 
         // Fetch test coordinates on load
         fetch(`${API_BASE}/test-coordinates`)
@@ -461,7 +538,7 @@
                 if (config.success) {
                     const gKey = config.data.google_maps_key;
                     const nKey = config.data.naver_client_id;
-                    
+
                     if (!gKey || !nKey) {
                         return showError("API Keys not configured in backend .env");
                     }
@@ -469,16 +546,16 @@
                     // 1. Load Naver Script
                     const nScript = document.getElementById('naver-script');
                     nScript.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${nKey}`;
-                    
+
                     nScript.onload = () => {
                         document.getElementById('status-naver').innerText = '🟢 Naver SDK';
-                        
+
                         // 2. Load Google Script
                         window.initMaps = initializeMapsLayout;
                         const gScript = document.getElementById('gmaps-script');
                         gScript.src = `https://maps.googleapis.com/maps/api/js?key=${gKey}&callback=initMaps`;
                     };
-                    
+
                     nScript.onerror = () => {
                         document.getElementById('status-naver').innerText = '🔴 Naver SDK Error';
                         showError("Failed to load Naver Maps SDK.");
@@ -565,110 +642,206 @@
             });
         }
 
-        // Run Sync Pipeline Execution
+        // ===== Utility: add animated step to timeline =====
+        function addStep(tl, color, icon, text) {
+            const t = new Date().toISOString().split('T')[1].slice(0, 8);
+            const div = document.createElement('div');
+            div.className = 'algo-step';
+            div.style.color = color;
+            div.innerHTML = `<span style="color:#555;">[${t}]</span> ${icon} ${text}`;
+            tl.appendChild(div);
+            tl.scrollTop = tl.scrollHeight;
+        }
+
+        function clearCorrectionMarkers() {
+            if (correctionMarkerGoogle) { correctionMarkerGoogle.setMap(null); correctionMarkerGoogle = null; }
+            if (correctionLineGoogle) { correctionLineGoogle.setMap(null); correctionLineGoogle = null; }
+            if (correctionMarkerNaver) { correctionMarkerNaver.setMap(null); correctionMarkerNaver = null; }
+        }
+
+        // ===== Check ML model status on load =====
+        fetch(`${API_BASE}/model-status`)
+            .then(r => r.json())
+            .then(s => {
+                const el = document.getElementById('status-ml');
+                if (s.loaded) {
+                    el.textContent = '🟢 ML (GPU)'; el.className = 'model-badge model-loaded';
+                } else {
+                    el.textContent = '🟡 PyProj Fallback'; el.className = 'model-badge model-fallback';
+                }
+            }).catch(() => { });
+
+        // ===== Run Sync (Original Transform Pipeline) =====
         document.getElementById('btn-sync').addEventListener('click', async () => {
             const lat = parseFloat(document.getElementById('input-lat').value);
             const lng = parseFloat(document.getElementById('input-lng').value);
-
-            if (isNaN(lat) || isNaN(lng)) {
-                showError("Invalid coordinate input format. Use valid floats.");
-                return;
-            }
+            if (isNaN(lat) || isNaN(lng)) { showError("좌표를 올바르게 입력하세요."); return; }
 
             const btnSync = document.getElementById('btn-sync');
             const loader = document.getElementById('sync-loader');
             const btnText = btnSync.querySelector('span');
             const tl = document.getElementById('algo-timeline');
 
-            btnSync.disabled = true;
-            btnText.style.display = 'none';
-            loader.style.display = 'block';
-            hideError();
+            btnSync.disabled = true; btnText.style.display = 'none'; loader.style.display = 'block';
+            hideError(); clearCorrectionMarkers();
             document.getElementById('score-overlay').style.display = 'flex';
-            
-            const pTime = new Date().toISOString().split('T')[1].slice(0, 8);
-            tl.innerHTML = `<div style="color:#aaa;">[${pTime}] Step 1: Initiating Request (WGS84 lat=${lat}, lng=${lng})...</div>`;
+            document.getElementById('ml-verify-result').style.display = 'none';
+            tl.innerHTML = '';
+            addStep(tl, '#aaa', '▶', `입력 좌표: WGS84 (${lat}, ${lng})`);
 
             try {
-                tl.innerHTML += `<div style="color:#aaa;">[${pTime}] Step 2: Extracting Target Geometry + Sending to Transform Engine...</div>`;
-                
+                addStep(tl, '#aaa', '⚙️', 'PyProj Transform Engine 요청 중...');
                 const response = await fetch(`${API_BASE}/transform`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ latitude: lat, longitude: lng, run_harness: true })
                 });
-
                 const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.detail || `HTTP Error ${response.status}`);
-                }
+                if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
 
                 const harness = data.data.harness;
                 const epsg = data.data.epsg5179;
-                
-                tl.innerHTML += `<div style="color:#a6ffcb;">[${pTime}] Step 3: PyProj 로컬 투영(EPSG:5179) 1차 변환 완료 (X: ${epsg.x.toFixed(2)}, Y: ${epsg.y.toFixed(2)})</div>`;
-                tl.innerHTML += `<div style="color:#1fa2ff;">[${pTime}] Step 4: Harness Engine 정합도 계산 -> 초도 RMSE: ${harness.rmse_before_m.toFixed(2)}m (Score: ${harness.harness_score})</div>`;
+                addStep(tl, '#a6ffcb', '✅', `EPSG:5179 투영 완료 (X: ${epsg.x.toFixed(2)}, Y: ${epsg.y.toFixed(2)})`);
+                addStep(tl, '#1fa2ff', '📊', `Harness Score: ${harness.harness_score} | RMSE: ${harness.rmse_before_m.toFixed(2)}m`);
 
                 if (harness.iterations > 0) {
-                    tl.innerHTML += `<div style="color:#ffab00;">[${pTime}] Step 5: (Score 미달 감지) Gemini AI Correction Loop 가동 (${harness.iterations} iterations)...</div>`;
-                } else {
-                    tl.innerHTML += `<div style="color:#0df07a;">[${pTime}] Step 5: 허용 오차 내 통과. 추가 보정 없음.</div>`;
+                    addStep(tl, '#ffab00', '🤖', `Gemini Correction Loop: ${harness.iterations}회 반복`);
                 }
 
-                // Update Maps
-                const inputPos = { lat: data.data.input.latitude, lng: data.data.input.longitude };
-
-                let finalLat = lat;
-                let finalLng = lng;
-
+                let finalLat = lat, finalLng = lng;
                 if (harness.corrections.length > 0) {
                     const latest = harness.corrections[harness.corrections.length - 1];
-                    finalLat += latest.lat_offset;
-                    finalLng += latest.lng_offset;
-                    tl.innerHTML += `<div style="color:#0df07a;">[${pTime}] Result: 최종 Target Sync (lat_offset: ${latest.lat_offset.toFixed(6)}, lng_offset: ${latest.lng_offset.toFixed(6)}) 완료.</div>`;
+                    finalLat += latest.lat_offset; finalLng += latest.lng_offset;
+                    addStep(tl, '#0df07a', '🎯', `보정 완료: Δlat=${latest.lat_offset.toFixed(6)}, Δlng=${latest.lng_offset.toFixed(6)}`);
                 }
 
-                // Scroll to bottom of timeline
-                tl.scrollTop = tl.scrollHeight;
+                mapLeft.panTo({ lat, lng }); markerLeft.setPosition({ lat, lng });
+                const nPos = new naver.maps.LatLng(finalLat, finalLng);
+                mapRight.panTo(nPos); markerRight.setPosition(nPos);
 
-                const finalPos = { lat: finalLat, lng: finalLng };
-
-                mapLeft.panTo(inputPos);
-                markerLeft.setPosition(inputPos);
-
-                const nTargetPos = new naver.maps.LatLng(finalLat, finalLng);
-                mapRight.panTo(nTargetPos);
-                markerRight.setPosition(nTargetPos);
-
-                // Update Overlay Data
                 document.getElementById('val-score').innerText = harness.harness_score;
-                document.getElementById('val-rmse-pre').innerText = harness.rmse_before_m.toFixed(2) + " m";
-                document.getElementById('val-iter').innerText = harness.iterations;
-
-                const postRmseEl = document.getElementById('val-rmse-post');
-                const rEl = document.getElementById('gemini-reasoning');
-                if (harness.gemini_status === "success" || (harness.gemini_reasoning && harness.gemini_status !== "skipped" && harness.gemini_status !== "error")) {
-                    postRmseEl.innerText = harness.rmse_after_m.toFixed(2) + " m";
-                    postRmseEl.className = "metric-value text-success";
-                    rEl.innerText = harness.gemini_reasoning || "Successfully corrected.";
-                    rEl.style.color = "#ddd";
-                } else {
-                    postRmseEl.innerText = harness.rmse_after_m.toFixed(2) + " m (PyProj Only)";
-                    postRmseEl.className = "metric-value text-warning";
-                    rEl.innerText = `Gemini Pipeline fallback executed: Status = ${harness.gemini_status}. Showing PyProj uncorrected offsets only.`;
-                    rEl.style.color = "#ffab00";
-                }
+                document.getElementById('val-rmse-pre').innerText = harness.rmse_before_m.toFixed(2) + ' m';
+                document.getElementById('val-rmse-post').innerText = harness.rmse_after_m.toFixed(2) + ' m';
+                document.getElementById('val-method').innerText = 'Gemini + PyProj';
+                document.getElementById('gemini-reasoning').innerText = harness.gemini_reasoning || 'PyProj 기반 변환 완료';
 
             } catch (err) {
-                console.error(err);
-                showError(err.message);
-                tl.innerHTML += `<div style="color:#ff5555;">[${new Date().toISOString().split('T')[1].slice(0, 8)}] 🚨 Algorithm Failure: ${err.message}</div>`;
-                tl.scrollTop = tl.scrollHeight;
+                console.error(err); showError(err.message);
+                addStep(tl, '#ff5555', '🚨', `오류: ${err.message}`);
             } finally {
-                btnSync.disabled = false;
-                btnText.style.display = 'inline';
-                loader.style.display = 'none';
+                btnSync.disabled = false; btnText.style.display = 'inline'; loader.style.display = 'none';
+            }
+        });
+
+        // ===== ⚡ ML Offset Prediction Pipeline =====
+        document.getElementById('btn-ml').addEventListener('click', async () => {
+            const lat = parseFloat(document.getElementById('input-lat').value);
+            const lng = parseFloat(document.getElementById('input-lng').value);
+            if (isNaN(lat) || isNaN(lng)) { showError("좌표를 올바르게 입력하세요."); return; }
+
+            const btn = document.getElementById('btn-ml');
+            const tl = document.getElementById('algo-timeline');
+            btn.disabled = true;
+            hideError(); clearCorrectionMarkers();
+            document.getElementById('score-overlay').style.display = 'flex';
+            document.getElementById('ml-verify-result').style.display = 'none';
+            tl.innerHTML = '';
+
+            addStep(tl, '#00c9ff', '⚡', `ML Offset Pipeline 시작 — 입력: (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+
+            try {
+                // Step 1: ML Predict Offset
+                addStep(tl, '#aaa', '🔮', 'decoder.pkl 로드 + Feature 계산 중...');
+                const predResp = await fetch(`${API_BASE}/predict-offset`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat, lng })
+                });
+                const pred = await predResp.json();
+
+                const method = pred.method || 'unknown';
+                const cLat = pred.corrected.lat;
+                const cLng = pred.corrected.lng;
+                const confidence = (pred.confidence * 100).toFixed(0);
+
+                addStep(tl, '#92fe9d', '✅', `보정 완료 [${method}] — 신뢰도: ${confidence}%`);
+                addStep(tl, '#92fe9d', '📍', `원본: (${lat.toFixed(6)}, ${lng.toFixed(6)})`);
+                addStep(tl, '#0df07a', '🎯', `보정: (${cLat.toFixed(6)}, ${cLng.toFixed(6)})`);
+
+                if (pred.details) {
+                    const d = pred.details;
+                    if (d.delta_x !== undefined) {
+                        addStep(tl, '#1fa2ff', '📐', `Δlng: ${d.delta_x.toFixed(8)} | Δlat: ${d.delta_y.toFixed(8)}`);
+                    }
+                    if (d.note) addStep(tl, '#ffab00', '⚠️', d.note);
+                }
+
+                // Step 2: Update maps with before/after markers
+                mapLeft.panTo({ lat, lng }); markerLeft.setPosition({ lat, lng });
+
+                // Corrected marker (green) on Google map
+                correctionMarkerGoogle = new google.maps.Marker({
+                    position: { lat: cLat, lng: cLng }, map: mapLeft,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE, scale: 10,
+                        fillColor: '#0df07a', fillOpacity: 0.9, strokeColor: '#fff', strokeWeight: 2
+                    },
+                    title: '보정된 좌표 (ML)'
+                });
+
+                // Arrow line from original to corrected
+                correctionLineGoogle = new google.maps.Polyline({
+                    path: [{ lat, lng }, { lat: cLat, lng: cLng }],
+                    map: mapLeft, strokeColor: '#0df07a', strokeOpacity: 0.8,
+                    strokeWeight: 3, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW }, offset: '100%' }]
+                });
+
+                // Naver map — corrected position
+                const nCorr = new naver.maps.LatLng(cLat, cLng);
+                mapRight.panTo(nCorr);
+                correctionMarkerNaver = new naver.maps.Marker({
+                    position: nCorr, map: mapRight,
+                    icon: {
+                        content: '<div style="width:22px;height:22px;background:#0df07a;border-radius:50%;border:3px solid #fff;box-shadow:0 0 10px rgba(13,240,122,0.5);"></div>',
+                        size: new naver.maps.Size(22, 22), anchor: new naver.maps.Point(11, 11)
+                    }
+                });
+
+                // Step 3: Verify Location (Naver reverse geocoding)
+                addStep(tl, '#aaa', '🔍', '네이버 역지오코딩 + 상호 매칭 중...');
+                const verResp = await fetch(`${API_BASE}/verify-location`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ lat, lng, poi_name: '' })
+                });
+                const ver = await verResp.json();
+
+                // Update overlay metrics
+                document.getElementById('val-score').innerText = ver.harness_score || '-';
+                document.getElementById('val-offset').innerText = (ver.offset_distance_m || 0).toFixed(1) + ' m';
+                document.getElementById('val-method').innerText = method === 'ml' ? '🧠 ML' : '📐 PyProj';
+                document.getElementById('val-rmse-pre').innerText = ver.offset_distance_m?.toFixed(2) + ' m' || '-';
+                document.getElementById('val-rmse-post').innerText = '보정 완료';
+                document.getElementById('val-rmse-post').className = 'metric-value text-success';
+
+                // Naver match result
+                if (ver.naver_result) {
+                    document.getElementById('ml-verify-result').style.display = 'block';
+                    document.getElementById('naver-match-name').innerText = ver.naver_result.name;
+                    document.getElementById('naver-match-addr').innerText = ver.naver_result.road_address || ver.naver_result.address;
+                    addStep(tl, '#0df07a', '🏪', `매칭 상호: ${ver.naver_result.name}`);
+                } else {
+                    addStep(tl, '#ffab00', '⚠️', '네이버 API 미설정 또는 매칭 실패 — 좌표만 표시');
+                }
+
+                addStep(tl, '#0df07a', '🏁', `파이프라인 완료 — Harness Score: ${ver.harness_score}`);
+
+                document.getElementById('gemini-reasoning').innerText =
+                    method === 'ml' ? `ML 모델 추론 완료 (학습 데이터 ${pred.details?.n_training_samples || '?'}건, GPU: ${pred.details?.gpu_trained || false})`
+                        : 'PyProj 기반 투영 변환 (ML 모델 미로드 — decoder.pkl 필요)';
+
+            } catch (err) {
+                console.error(err); showError(err.message);
+                addStep(tl, '#ff5555', '🚨', `오류: ${err.message}`);
+            } finally {
+                btn.disabled = false;
             }
         });
 
