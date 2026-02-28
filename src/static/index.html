@@ -302,11 +302,10 @@
     <header>
         <h1>GeoHarness Spatial-Sync v4.0</h1>
         <div class="controls">
-            <input type="text" id="api-key" placeholder="Google API Key" style="width: 120px;" />
-            <input type="text" id="naver-key" placeholder="Naver Client ID" style="width: 120px;" />
-            <button id="btn-init-map">Init Maps</button>
-
-            <div style="width: 1px; height: 24px; background: #444; margin: 0 10px;"></div>
+            <div style="color: #888; font-size: 0.9rem; margin-right: 15px;">
+                <span id="status-google">⚪ Google SDK</span> |
+                <span id="status-naver">⚪ Naver SDK</span>
+            </div>
 
             <select id="landmark-select"
                 style="background: #111; border: 1px solid #444; color: white; padding: 0.5rem; border-radius: 4px; font-size: 0.9rem; max-width: 150px;">
@@ -339,9 +338,14 @@
 
         </div>
 
-        <!-- Results Overlay -->
+        <!-- Results Overlay (Algorithm Verification Dashboard) -->
         <div id="score-overlay">
-            <div class="overlay-metrics">
+            <div
+                style="font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 0.5rem; margin-bottom: 0.5rem; color: var(--primary);">
+                ⚙️ Algorithm Verification Framework
+            </div>
+
+            <div class="overlay-metrics" style="padding-bottom: 0.5rem; border-bottom: none;">
                 <div class="metric-group">
                     <span class="metric-label">Harness Score</span>
                     <span class="metric-value" id="val-score">-</span>
@@ -355,14 +359,19 @@
                     <span class="metric-value text-success" id="val-rmse-post">- m</span>
                 </div>
                 <div class="metric-group">
-                    <span class="metric-label">Iterations</span>
+                    <span class="metric-label">AI Loops</span>
                     <span class="metric-value" id="val-iter">0</span>
                 </div>
             </div>
 
-            <div>
-                <div class="gemini-badge">✨ Gemini Self-Correction Reasoning</div>
-                <div id="gemini-reasoning">Waiting for pipeline execution...</div>
+            <div style="background: #151515; border: 1px solid #333; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.85rem; max-height: 180px; overflow-y: auto;"
+                id="algo-timeline">
+                <div style="color: #666;">Waiting for 'Run Sync' execution...</div>
+            </div>
+
+            <div style="margin-top: 0.5rem;">
+                <div class="gemini-badge">✨ CoT Reasoning Output</div>
+                <div id="gemini-reasoning" style="font-size: 0.85rem;">-</div>
             </div>
         </div>
 
@@ -445,30 +454,45 @@
             })
             .catch(err => console.error("Failed to load test coordinates", err));
 
-        // Initialize SDKs dynamically based on user input for hackathon security bypassing
-        document.getElementById('btn-init-map').addEventListener('click', () => {
-            const googleKey = document.getElementById('api-key').value;
-            const naverKey = document.getElementById('naver-key').value;
+        // Fetch backend keys and auto-init maps
+        fetch(`${API_BASE}/config`)
+            .then(res => res.json())
+            .then(config => {
+                if (config.success) {
+                    const gKey = config.data.google_maps_key;
+                    const nKey = config.data.naver_client_id;
+                    
+                    if (!gKey || !nKey) {
+                        return showError("API Keys not configured in backend .env");
+                    }
 
-            if (!googleKey || !naverKey) return alert("Please provide both Google API Key and Naver Client ID.");
-
-            // 1. Load Naver Script (Synchronous to ensure global `naver` object exists before Google callback)
-            const nScript = document.getElementById('naver-script');
-            nScript.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${naverKey}`;
-
-            nScript.onload = () => {
-                // 2. Load Google Script only after Naver is ready
-                window.initMaps = initializeMapsLayout;
-                const gScript = document.getElementById('gmaps-script');
-                gScript.src = `https://maps.googleapis.com/maps/api/js?key=${googleKey}&callback=initMaps`;
-            };
-
-            nScript.onerror = () => {
-                showError("Failed to load Naver Maps SDK. Please check your Client ID or network.");
-            }
-        });
+                    // 1. Load Naver Script
+                    const nScript = document.getElementById('naver-script');
+                    nScript.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${nKey}`;
+                    
+                    nScript.onload = () => {
+                        document.getElementById('status-naver').innerText = '🟢 Naver SDK';
+                        
+                        // 2. Load Google Script
+                        window.initMaps = initializeMapsLayout;
+                        const gScript = document.getElementById('gmaps-script');
+                        gScript.src = `https://maps.googleapis.com/maps/api/js?key=${gKey}&callback=initMaps`;
+                    };
+                    
+                    nScript.onerror = () => {
+                        document.getElementById('status-naver').innerText = '🔴 Naver SDK Error';
+                        showError("Failed to load Naver Maps SDK.");
+                    }
+                } else {
+                    showError("Could not retrieve backend config.");
+                }
+            })
+            .catch(err => {
+                showError(`Failed to fetch config api: ${err}`);
+            });
 
         function initializeMapsLayout() {
+            document.getElementById('status-google').innerText = '🟢 Google SDK';
             const gangnamParams = { lat: 37.49794, lng: 127.02764 };
 
             // ==========================================
@@ -554,14 +578,20 @@
             const btnSync = document.getElementById('btn-sync');
             const loader = document.getElementById('sync-loader');
             const btnText = btnSync.querySelector('span');
+            const tl = document.getElementById('algo-timeline');
 
             btnSync.disabled = true;
             btnText.style.display = 'none';
             loader.style.display = 'block';
             hideError();
-            document.getElementById('score-overlay').style.display = 'none';
+            document.getElementById('score-overlay').style.display = 'flex';
+            
+            const pTime = new Date().toISOString().split('T')[1].slice(0, 8);
+            tl.innerHTML = `<div style="color:#aaa;">[${pTime}] Step 1: Initiating Request (WGS84 lat=${lat}, lng=${lng})...</div>`;
 
             try {
+                tl.innerHTML += `<div style="color:#aaa;">[${pTime}] Step 2: Extracting Target Geometry + Sending to Transform Engine...</div>`;
+                
                 const response = await fetch(`${API_BASE}/transform`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -574,12 +604,21 @@
                     throw new Error(data.detail || `HTTP Error ${response.status}`);
                 }
 
+                const harness = data.data.harness;
+                const epsg = data.data.epsg5179;
+                
+                tl.innerHTML += `<div style="color:#a6ffcb;">[${pTime}] Step 3: PyProj 로컬 투영(EPSG:5179) 1차 변환 완료 (X: ${epsg.x.toFixed(2)}, Y: ${epsg.y.toFixed(2)})</div>`;
+                tl.innerHTML += `<div style="color:#1fa2ff;">[${pTime}] Step 4: Harness Engine 정합도 계산 -> 초도 RMSE: ${harness.rmse_before_m.toFixed(2)}m (Score: ${harness.harness_score})</div>`;
+
+                if (harness.iterations > 0) {
+                    tl.innerHTML += `<div style="color:#ffab00;">[${pTime}] Step 5: (Score 미달 감지) Gemini AI Correction Loop 가동 (${harness.iterations} iterations)...</div>`;
+                } else {
+                    tl.innerHTML += `<div style="color:#0df07a;">[${pTime}] Step 5: 허용 오차 내 통과. 추가 보정 없음.</div>`;
+                }
+
                 // Update Maps
                 const inputPos = { lat: data.data.input.latitude, lng: data.data.input.longitude };
 
-                // Final position uses original if gemini fails, or last iteration lat offset. 
-                // For the mock, the dummy GT is processed.
-                const harness = data.data.harness;
                 let finalLat = lat;
                 let finalLng = lng;
 
@@ -587,7 +626,11 @@
                     const latest = harness.corrections[harness.corrections.length - 1];
                     finalLat += latest.lat_offset;
                     finalLng += latest.lng_offset;
+                    tl.innerHTML += `<div style="color:#0df07a;">[${pTime}] Result: 최종 Target Sync (lat_offset: ${latest.lat_offset.toFixed(6)}, lng_offset: ${latest.lng_offset.toFixed(6)}) 완료.</div>`;
                 }
+
+                // Scroll to bottom of timeline
+                tl.scrollTop = tl.scrollHeight;
 
                 const finalPos = { lat: finalLat, lng: finalLng };
 
@@ -611,17 +654,17 @@
                     rEl.innerText = harness.gemini_reasoning || "Successfully corrected.";
                     rEl.style.color = "#ddd";
                 } else {
-                    postRmseEl.innerText = harness.rmse_after_m.toFixed(2) + " m (Gemini 보정 없음)";
+                    postRmseEl.innerText = harness.rmse_after_m.toFixed(2) + " m (PyProj Only)";
                     postRmseEl.className = "metric-value text-warning";
                     rEl.innerText = `Gemini Pipeline fallback executed: Status = ${harness.gemini_status}. Showing PyProj uncorrected offsets only.`;
                     rEl.style.color = "#ffab00";
                 }
 
-                document.getElementById('score-overlay').style.display = 'flex';
-
             } catch (err) {
                 console.error(err);
                 showError(err.message);
+                tl.innerHTML += `<div style="color:#ff5555;">[${new Date().toISOString().split('T')[1].slice(0, 8)}] 🚨 Algorithm Failure: ${err.message}</div>`;
+                tl.scrollTop = tl.scrollHeight;
             } finally {
                 btnSync.disabled = false;
                 btnText.style.display = 'inline';

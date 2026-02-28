@@ -11,8 +11,9 @@ import google.generativeai as genai
 from engine.transform import run_transformation_pipeline
 from engine.ai import execute_gemini_correction_loop
 from engine.metrics import calculate_rmse, calculate_harness_score
+from config import settings
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_API_KEY = settings.GEMINI_API_KEY
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 # Default MVP model per PRD
@@ -58,6 +59,19 @@ def read_root():
     with open(html_file, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
+
+
+@app.get("/api/v1/config")
+def get_public_config_endpoint():
+    """Returns safe, public API keys needed by the frontend web client."""
+    return {
+        "success": True, 
+        "data": {
+            "google_maps_key": settings.GOOGLE_MAPS_KEY,
+            "naver_client_id": settings.NAVER_CLIENT_ID
+        }
+    }
+
 
 @app.post("/api/v1/transform")
 def transform_endpoint(payload: Dict[str, Any] = Body(...)):
