@@ -6,7 +6,7 @@ on:
       - main  # Trigger only when code is pushed to the main branch
 
 env:
-  PROJECT_ID: geoharness-mvp          # REPLACE with your actual GCP Project ID
+  PROJECT_ID: geoharness               # Matches SA: geoharness@geoharness.iam.gserviceaccount.com
   REGION: asia-northeast3             # Seoul region
   SERVICE_NAME: geoharness-api
 
