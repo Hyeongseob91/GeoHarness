@@ -397,14 +397,9 @@
 
         </div>
 
-        <!-- Results Overlay (Algorithm Verification Dashboard) -->
+        <!-- Results Overlay -->
         <div id="score-overlay">
-            <div
-                style="font-weight: bold; border-bottom: 1px solid #333; padding-bottom: 0.5rem; margin-bottom: 0.5rem; color: var(--primary);">
-                ⚙️ Algorithm Verification Framework
-            </div>
-
-            <div class="overlay-metrics" style="padding-bottom: 0.5rem; border-bottom: none;">
+            <div class="overlay-metrics">
                 <div class="metric-group">
                     <span class="metric-label">Harness Score</span>
                     <span class="metric-value" id="val-score">-</span>
@@ -531,8 +526,8 @@
             })
             .catch(err => console.error("Failed to load test coordinates", err));
 
-        // Fetch backend keys and auto-init maps
-        fetch(`${API_BASE}/config`)
+        // Fetch API keys and initialize SDKs dynamically
+        fetch(`${API_BASE}/maps-keys`)
             .then(res => res.json())
             .then(config => {
                 if (config.success) {
@@ -557,19 +552,13 @@
                     };
 
                     nScript.onerror = () => {
-                        document.getElementById('status-naver').innerText = '🔴 Naver SDK Error';
                         showError("Failed to load Naver Maps SDK.");
-                    }
-                } else {
-                    showError("Could not retrieve backend config.");
+                    };
                 }
             })
-            .catch(err => {
-                showError(`Failed to fetch config api: ${err}`);
-            });
+            .catch(err => console.error("Failed to fetch keys", err));
 
         function initializeMapsLayout() {
-            document.getElementById('status-google').innerText = '🟢 Google SDK';
             const gangnamParams = { lat: 37.49794, lng: 127.02764 };
 
             // ==========================================
@@ -723,6 +712,8 @@
                 document.getElementById('val-rmse-post').innerText = harness.rmse_after_m.toFixed(2) + ' m';
                 document.getElementById('val-method').innerText = 'Gemini + PyProj';
                 document.getElementById('gemini-reasoning').innerText = harness.gemini_reasoning || 'PyProj 기반 변환 완료';
+
+                document.getElementById('score-overlay').style.display = 'flex';
 
             } catch (err) {
                 console.error(err); showError(err.message);

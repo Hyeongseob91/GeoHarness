@@ -12,8 +12,11 @@ from engine.transform import run_transformation_pipeline
 from engine.ai import execute_gemini_correction_loop
 from engine.metrics import calculate_rmse, calculate_harness_score
 from shared.config import settings
+from dotenv import load_dotenv
 
-GEMINI_API_KEY = settings.GEMINI_API_KEY
+load_dotenv()
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
 # Default MVP model per PRD
@@ -63,19 +66,6 @@ def read_root():
     with open(html_file, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
-
-
-@app.get("/api/v1/config")
-def get_public_config_endpoint():
-    """Returns safe, public API keys needed by the frontend web client."""
-    return {
-        "success": True, 
-        "data": {
-            "google_maps_key": settings.GOOGLE_MAPS_KEY,
-            "naver_client_id": settings.NAVER_CLIENT_ID
-        }
-    }
-
 
 @app.post("/api/v1/transform")
 def transform_endpoint(payload: Dict[str, Any] = Body(...)):
@@ -232,3 +222,15 @@ def transform_batch_endpoint(payload: Dict[str, Any] = Body(...)):
 def get_test_coordinates_endpoint():
     """Returns the static landmark JSON set."""
     return {"success": True, "data": TEST_LANDMARKS}
+
+
+@app.get("/api/v1/maps-keys")
+def get_maps_keys_endpoint():
+    """Securely provide frontend keys."""
+    return {
+        "success": True,
+        "data": {
+            "google_maps_key": os.getenv("GOOGLE_MAPS_KEY", ""),
+            "naver_client_id": os.getenv("NAVER_CLIENT_ID", "")
+        }
+    }
