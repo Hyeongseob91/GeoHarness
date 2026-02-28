@@ -27,7 +27,7 @@ import aiohttp
 from dotenv import load_dotenv
 from pyproj import Transformer
 
-from config import settings
+from shared.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VWorldCollector")

@@ -172,5 +172,8 @@ ehthumbs.db
 Thumbs.db
 
 # `uv` specifics
-uv.lock
 .python-version
+
+# Claude (Gemini 해커톤 프로젝트)
+.claude/
+CLAUDE.md

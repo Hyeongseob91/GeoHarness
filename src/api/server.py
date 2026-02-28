@@ -11,7 +11,7 @@ import google.generativeai as genai
 from engine.transform import run_transformation_pipeline
 from engine.ai import execute_gemini_correction_loop
 from engine.metrics import calculate_rmse, calculate_harness_score
-from config import settings
+from shared.config import settings
 
 GEMINI_API_KEY = settings.GEMINI_API_KEY
 if GEMINI_API_KEY:

@@ -26,7 +26,7 @@ from typing import List, Dict
 import aiohttp
 from dotenv import load_dotenv
 
-from config import settings
+from shared.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("NaverCollector")

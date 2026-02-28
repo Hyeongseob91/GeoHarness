@@ -1,10 +1,34 @@
 [project]
 name = "geoharness"
-version = "0.1.0"
-description = "Add your description here"
+version = "2.0.0"
+description = "Geometry-based coordinate alignment system for Google Maps ↔ Naver Maps offset correction"
 readme = "README.md"
-requires-python = ">=3.14"
-dependencies = []
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.24.0",
+    "pyproj>=3.6.0",
+    "google-generativeai>=0.3.0",
+    "numpy>=1.24.0",
+    "pydantic-settings>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "aiohttp>=3.9.0",
+    "beautifulsoup4>=4.12.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.2",
+]

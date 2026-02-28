@@ -19,7 +19,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from config import settings
+from shared.config import settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("DatasetGenerator")
