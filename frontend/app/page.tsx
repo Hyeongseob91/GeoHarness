@@ -24,43 +24,54 @@ interface Prediction {
   main_text: string;
 }
 
+declare global { interface Window { naver: any; } }
+
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [selected, setSelected] = useState<Place | null>(null);
   const [loading, setLoading] = useState(false);
   const [mapsKey, setMapsKey] = useState("");
-  const [sdkLoaded, setSdkLoaded] = useState(false);
+  const [naverKey, setNaverKey] = useState("");
+  const [gReady, setGReady] = useState(false);
+  const [nReady, setNReady] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Map refs
+  const nMapRef = useRef<HTMLDivElement>(null);
   const gMapRef = useRef<HTMLDivElement>(null);
-  const gMapInstance = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.Marker[]>([]);
-  const lineRef = useRef<google.maps.Polyline | null>(null);
+  const nMap = useRef<any>(null);
+  const gMap = useRef<google.maps.Map | null>(null);
+  const nMarker = useRef<any>(null);
+  const gMarkers = useRef<google.maps.Marker[]>([]);
+  const gLine = useRef<google.maps.Polyline | null>(null);
 
+  // Fetch keys
   useEffect(() => {
-    fetch(`${API_BASE}/maps-keys`)
-      .then((r) => r.json())
-      .then((d) => { if (d.success && d.data?.google_maps_key) setMapsKey(d.data.google_maps_key); })
-      .catch(() => { });
+    fetch(`${API_BASE}/maps-keys`).then(r => r.json()).then(d => {
+      if (d.success) {
+        if (d.data?.google_maps_key) setMapsKey(d.data.google_maps_key);
+        if (d.data?.naver_client_id) setNaverKey(d.data.naver_client_id);
+      }
+    }).catch(() => { });
   }, []);
 
+  // Load SDKs
   useEffect(() => {
-    if (!mapsKey || sdkLoaded) return;
+    if (!mapsKey || gReady) return;
     const s = document.createElement("script");
     s.src = `https://maps.googleapis.com/maps/api/js?key=${mapsKey}&language=ko`;
-    s.async = true;
-    s.onload = () => setSdkLoaded(true);
+    s.async = true; s.onload = () => setGReady(true);
     document.head.appendChild(s);
-  }, [mapsKey, sdkLoaded]);
+  }, [mapsKey, gReady]);
 
   useEffect(() => {
-    if (!sdkLoaded || !gMapRef.current || gMapInstance.current) return;
-    gMapInstance.current = new google.maps.Map(gMapRef.current, {
-      center: { lat: 37.5443, lng: 127.0557 }, zoom: 16,
-      styles: darkStyle, disableDefaultUI: true, zoomControl: true,
-    });
-  }, [sdkLoaded]);
+    if (!naverKey || nReady) return;
+    const s = document.createElement("script");
+    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${naverKey}`;
+    s.async = true; s.onload = () => setNReady(true);
+    document.head.appendChild(s);
+  }, [naverKey, nReady]);
 
   const handleInput = useCallback((value: string) => {
     setQuery(value);
@@ -78,42 +89,59 @@ export default function SearchPage() {
   const handleSearch = useCallback(async (searchQuery?: string) => {
     const q = searchQuery || query;
     if (!q.trim()) return;
-    setLoading(true);
-    setPredictions([]);
+    setLoading(true); setPredictions([]);
     try {
       const res = await fetch(`${API_BASE}/search`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, region: "성수동" }),
       });
       const data = await res.json();
-      if (data.places?.length > 0) showPlace(data.places[0]);
+      if (data.places?.length > 0) setSelected(data.places[0]);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   }, [query]);
 
-  const showPlace = (place: Place) => {
-    setSelected(place);
-    if (!gMapInstance.current) return;
-    const map = gMapInstance.current;
-    markersRef.current.forEach(m => m.setMap(null));
-    markersRef.current = [];
-    lineRef.current?.setMap(null);
+  // Update maps when selected changes
+  useEffect(() => {
+    if (!selected) return;
+    const corr = selected.corrected;
+    const orig = selected.original;
 
-    const orig = place.original;
-    const corr = place.corrected;
+    // Naver Map (보정 좌표)
+    if (nReady && nMapRef.current && window.naver) {
+      const pos = new window.naver.maps.LatLng(corr.lat, corr.lng);
+      if (!nMap.current) {
+        nMap.current = new window.naver.maps.Map(nMapRef.current, {
+          center: pos, zoom: 17,
+        });
+      } else {
+        nMap.current.setCenter(pos);
+      }
+      if (nMarker.current) { nMarker.current.setPosition(pos); }
+      else {
+        nMarker.current = new window.naver.maps.Marker({ position: pos, map: nMap.current });
+      }
+    }
 
-    const mO = new google.maps.Marker({ position: orig, map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: "#ff5555", fillOpacity: 0.9, strokeColor: "#fff", strokeWeight: 2 }, title: "❌ 구글 좌표", zIndex: 1 });
-    const mC = new google.maps.Marker({ position: corr, map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: "#0df07a", fillOpacity: 0.95, strokeColor: "#fff", strokeWeight: 2 }, title: "✅ ML 보정", zIndex: 2 });
-    const ln = new google.maps.Polyline({ path: [orig, corr], map, strokeColor: "#0df07a", strokeOpacity: 0.85, strokeWeight: 3, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: "#0df07a", fillOpacity: 1 }, offset: "100%" }] });
-    markersRef.current = [mO, mC];
-    lineRef.current = ln;
-    const b = new google.maps.LatLngBounds(); b.extend(orig); b.extend(corr);
-    map.fitBounds(b, 60);
-    const li = google.maps.event.addListener(map, "idle", () => { if ((map.getZoom() ?? 0) > 18) map.setZoom(18); google.maps.event.removeListener(li); });
-  };
+    // Google Map (오차 표시)
+    if (gReady && gMapRef.current) {
+      if (!gMap.current) {
+        gMap.current = new google.maps.Map(gMapRef.current, {
+          center: orig, zoom: 17, styles: darkStyle, disableDefaultUI: true, zoomControl: true,
+        });
+      }
+      const map = gMap.current;
+      gMarkers.current.forEach(m => m.setMap(null)); gMarkers.current = [];
+      gLine.current?.setMap(null);
 
-  const naverUrl = selected ? `https://map.naver.com/p/search/${encodeURIComponent(selected.name)}` : "";
+      const mO = new google.maps.Marker({ position: orig, map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: "#ff5555", fillOpacity: 0.9, strokeColor: "#fff", strokeWeight: 2 }, title: "❌ 구글", zIndex: 1 });
+      const mC = new google.maps.Marker({ position: corr, map, icon: { path: google.maps.SymbolPath.CIRCLE, scale: 12, fillColor: "#0df07a", fillOpacity: 0.95, strokeColor: "#fff", strokeWeight: 2 }, title: "✅ 보정", zIndex: 2 });
+      const ln = new google.maps.Polyline({ path: [orig, corr], map, strokeColor: "#0df07a", strokeOpacity: 0.85, strokeWeight: 3, icons: [{ icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 3, fillColor: "#0df07a", fillOpacity: 1 }, offset: "100%" }] });
+      gMarkers.current = [mO, mC]; gLine.current = ln;
+      const b = new google.maps.LatLngBounds(); b.extend(orig); b.extend(corr); map.fitBounds(b, 60);
+      const li = google.maps.event.addListener(map, "idle", () => { if ((map.getZoom() ?? 0) > 18) map.setZoom(18); google.maps.event.removeListener(li); });
+    }
+  }, [selected, gReady, nReady]);
 
   return (
     <div className="flex flex-col h-screen bg-[var(--bg)]">
@@ -161,19 +189,19 @@ export default function SearchPage() {
       ) : (
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 flex min-h-0">
-            {/* 네이버 지도 */}
+            {/* 네이버 지도 (Naver Maps SDK) */}
             <div className="w-1/2 relative border-r-2 border-[var(--accent)]">
               <div className="absolute top-3 left-3 z-10">
-                <span className="bg-[var(--accent)] text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">✅ 네이버 지도 (현재)</span>
+                <span className="bg-[var(--accent)] text-black text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">✅ 네이버 지도 (현재, ML 보정 좌표)</span>
               </div>
-              <iframe key={naverUrl} src={naverUrl} className="w-full h-full border-0" title="네이버 지도" allow="geolocation" />
+              <div ref={nMapRef} className="w-full h-full" />
             </div>
-            {/* 구글 지도 + 마커 */}
+            {/* 구글 지도 + 오차 마커 */}
             <div className="w-1/2 relative">
               <div className="absolute top-3 left-3 z-10">
                 <span className="bg-[var(--danger)] text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg">❌ 구글 지도 (업데이트 안됨)</span>
               </div>
-              <div className="absolute bottom-3 right-3 z-10 bg-[var(--panel)]/90 backdrop-blur-sm border border-[var(--border)] rounded-lg p-2.5 text-xs">
+              <div className="absolute bottom-3 right-3 z-10 bg-black/70 backdrop-blur-sm border border-[var(--border)] rounded-lg p-2.5 text-xs">
                 <div className="flex items-center gap-2 mb-1"><span className="w-3 h-3 rounded-full bg-[#ff5555] inline-block" /><span>구글 좌표 (틀림)</span></div>
                 <div className="flex items-center gap-2"><span className="w-3 h-3 rounded-full bg-[#0df07a] inline-block" /><span>ML 보정 (실제)</span></div>
               </div>
@@ -199,7 +227,6 @@ export default function SearchPage() {
               <p className={`text-sm font-semibold px-3 py-1.5 rounded-full ${selected.method === "ml" ? "bg-green-900/30 text-[var(--accent)]" : "bg-amber-900/30 text-[var(--warning)]"}`}>
                 {selected.method === "ml" ? "🧠 ML Model" : "📐 Fallback"}
               </p>
-              <p className="text-[10px] text-[var(--text-muted)] mt-0.5">보정 방식</p>
             </div>
             <a href={`https://www.google.com/maps/dir/?api=1&destination=${selected.corrected.lat},${selected.corrected.lng}`}
               target="_blank" rel="noopener noreferrer"
