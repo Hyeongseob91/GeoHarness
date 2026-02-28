@@ -540,7 +540,7 @@
 
                     // 1. Load Naver Script
                     const nScript = document.getElementById('naver-script');
-                    nScript.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${nKey}`;
+                    nScript.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpKeyID=${nKey}`;
 
                     nScript.onload = () => {
                         document.getElementById('status-naver').innerText = '🟢 Naver SDK';

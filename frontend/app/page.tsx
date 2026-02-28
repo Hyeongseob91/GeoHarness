@@ -71,7 +71,7 @@ export default function SearchPage() {
   useEffect(() => {
     if (!naverKey || nReady) return;
     const s = document.createElement("script");
-    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${naverKey}`;
+    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyID=${naverKey}`;
     s.async = true; s.onload = () => setNReady(true);
     document.head.appendChild(s);
   }, [naverKey, nReady]);
