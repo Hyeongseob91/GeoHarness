@@ -42,15 +42,22 @@ app.include_router(verifier_router)
 
 logger = logging.getLogger("api")
 
-# Load Mock Coordinates Data once
-LANDMARK_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'test_coordinates.json')
+# Load VWorld Anchors Data once
+VWORLD_DATA_FILE = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'vworld_anchors.csv')
 TEST_LANDMARKS = []
 
 def load_landmarks():
     global TEST_LANDMARKS
-    if os.path.exists(LANDMARK_DATA_FILE):
-        with open(LANDMARK_DATA_FILE, "r", encoding="utf-8") as f:
-            TEST_LANDMARKS = json.load(f)
+    if os.path.exists(VWORLD_DATA_FILE):
+        import csv
+        with open(VWORLD_DATA_FILE, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                TEST_LANDMARKS.append({
+                    "name": row["anchor_name"],
+                    "google_coords": {"lat": float(row["vw_lat"]), "lng": float(row["vw_lng"])},
+                    "naver_coords": {"lat": float(row["vw_lat"]), "lng": float(row["vw_lng"])} # Placeholder for Naver GT
+                })
 
 load_landmarks()
 

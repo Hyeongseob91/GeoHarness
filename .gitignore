@@ -177,3 +177,6 @@ Thumbs.db
 # Claude (Gemini 해커톤 프로젝트)
 .claude/
 CLAUDE.md
+
+# ML model artifacts (regenerable)
+models/
