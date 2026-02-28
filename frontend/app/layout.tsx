@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GeoHarness — 실제 위치 찾기",
+  title: "GeoHarness — 이 가게, 아직 있을까?",
   description:
-    "한국 규제로 업데이트되지 못한 구글 지도 좌표를 ML로 보정하여 실제 위치를 안내합니다.",
+    "구글 지도의 장소를 네이버와 교차검증하여 폐업·이전 위험을 알려드립니다.",
 };
 
 export default function RootLayout({

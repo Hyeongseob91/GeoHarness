@@ -1,16 +1,18 @@
 """
-GeoHarness v5.0: Place Search API
+GeoHarness v6.0: POI Survival Verification API
 
 사용자가 장소명을 검색하면:
 1. Google Places Text Search로 WGS84 좌표를 가져오고
-2. ML decoder로 보정된 좌표를 계산하고
-3. 원본 + 보정 좌표 + 메타데이터를 반환합니다.
+2. Naver Search Local API로 교차검증하여 POI 생존 여부를 판정하고
+3. ML decoder로 보정된 좌표를 보조 지표로 계산하고
+4. 판정 결과 + 원본/보정 좌표 + 메타데이터를 반환합니다.
 """
 
 import logging
+import re
 import time
-from typing import Dict, Optional
-from functools import lru_cache
+from difflib import SequenceMatcher
+from typing import Dict, Optional, Tuple
 
 import aiohttp
 from fastapi import APIRouter, Query
@@ -44,23 +46,70 @@ def _set_cache(key: str, value: dict):
     _cache_timestamps[key] = time.time()
 
 
+def _strip_html(text: str) -> str:
+    """HTML 태그 제거 (Naver가 <b>bold</b> 형태로 반환)"""
+    return re.sub(r"<[^>]+>", "", text)
+
+
+def name_similarity(google_name: str, naver_name: str) -> float:
+    """한/영 정규화 후 유사도 계산 (0~1)"""
+    def normalize(s: str) -> str:
+        s = _strip_html(s)
+        s = re.sub(r"[^\w가-힣a-zA-Z0-9]", "", s)
+        return s.lower().strip()
+
+    g = normalize(google_name)
+    n = normalize(naver_name)
+    if not g or not n:
+        return 0.0
+    return SequenceMatcher(None, g, n).ratio()
+
+
+def classify_poi_status(
+    google_name: str,
+    google_lat: float,
+    google_lng: float,
+    naver_item: Optional[dict],
+    naver_lat: Optional[float],
+    naver_lng: Optional[float],
+) -> Tuple[str, float, str]:
+    """
+    POI 생존 판정.
+
+    Returns:
+        (status, confidence, reason)
+        status: "verified" | "warning" | "not_found"
+        confidence: 0.0~1.0
+        reason: 판정 사유 (한국어)
+    """
+    if naver_item is None or naver_lat is None or naver_lng is None:
+        return ("not_found", 0.85, "네이버 미등록 (폐업 추정)")
+
+    naver_name = _strip_html(naver_item.get("title", ""))
+    similarity = name_similarity(google_name, naver_name)
+    dist = haversine_m(google_lat, google_lng, naver_lat, naver_lng)
+
+    if dist <= 50 and similarity >= 0.4:
+        confidence = min(1.0, 0.7 + similarity * 0.3)
+        return ("verified", round(confidence, 2), "네이버 검색 확인됨")
+
+    if dist <= 500:
+        if similarity >= 0.4:
+            confidence = max(0.4, 0.8 - dist / 1000)
+            return ("warning", round(confidence, 2), f"위치 불일치 {dist:.0f}m (이전 가능성)")
+        else:
+            confidence = max(0.3, 0.7 - dist / 1000)
+            return ("warning", round(confidence, 2), f"이름 불일치 (유사도 {similarity:.0%})")
+
+    return ("not_found", 0.8, f"거리 {dist:.0f}m 초과 (폐업 추정)")
+
+
 @router.post("/search")
 async def search_place(payload: dict):
     """
-    장소 텍스트 검색 → Google Places → ML 보정
+    장소 텍스트 검색 → Google Places → Naver 교차검증 → POI 생존 판정
 
     Request: { "query": "하이라인 카페", "region": "성수동" }
-    Response: {
-        "places": [{
-            "name": "하이라인",
-            "address": "서울시 성동구...",
-            "original": { "lat": 37.5442, "lng": 127.0499 },
-            "corrected": { "lat": 37.5443, "lng": 127.0501 },
-            "correction_distance_m": 12.3,
-            "confidence": 0.92,
-            "method": "ml"
-        }]
-    }
     """
     query = payload.get("query", "")
     region = payload.get("region", "성수동")
@@ -79,7 +128,7 @@ async def search_place(payload: dict):
     api_key = settings.GOOGLE_MAPS_KEY
     if not api_key:
         return {"error": "GOOGLE_MAPS_KEY not configured", "places": []}
-        
+
     # API keys
     naver_search_id = settings.NAVER_SEARCH_CLIENT_ID
     naver_search_secret = settings.NAVER_SEARCH_CLIENT_SECRET
@@ -131,14 +180,16 @@ async def search_place(payload: dict):
         results = data.get("results", [])
         places = []
 
-        # 1차: Naver Search Local API 좌표 파싱 (mapx/mapy = WGS84 × 10^7)
+        # 1차: Naver Search Local API 결과 파싱
         n_lat, n_lng = None, None
+        naver_item = None
         if naver_search_data:
             items = naver_search_data.get("items", [])
             if items:
+                naver_item = items[0]
                 try:
-                    raw_x = int(items[0].get("mapx", 0))
-                    raw_y = int(items[0].get("mapy", 0))
+                    raw_x = int(naver_item.get("mapx", 0))
+                    raw_y = int(naver_item.get("mapy", 0))
                     if raw_x and raw_y:
                         n_lng = raw_x / 10_000_000.0
                         n_lat = raw_y / 10_000_000.0
@@ -174,12 +225,23 @@ async def search_place(payload: dict):
                 except Exception as e:
                     logger.warning(f"NCP Geocoding fallback failed: {e}")
 
+        # Naver 메타데이터 추출
+        naver_name = None
+        naver_category = None
+        naver_phone = None
+        naver_link = None
+        if naver_item:
+            naver_name = _strip_html(naver_item.get("title", "")) or None
+            naver_category = naver_item.get("category") or None
+            naver_phone = naver_item.get("telephone") or None
+            naver_link = naver_item.get("link") or None
+
         for place in results[:5]:  # 상위 5건만
             geo = place.get("geometry", {}).get("location", {})
             g_lat = geo.get("lat", 0)
             g_lng = geo.get("lng", 0)
 
-            # ML 보정
+            # ML 보정 (보조 지표)
             correction = predict_offset(g_lat, g_lng)
 
             # 보정 거리 계산
@@ -191,10 +253,21 @@ async def search_place(payload: dict):
             if n_lat is not None and n_lng is not None:
                 naver_location = {"lat": n_lat, "lng": n_lng}
                 sync_dist_m = haversine_m(correction["corrected_lat"], correction["corrected_lng"], n_lat, n_lng)
-                # 0m = 100%, 5m = 95%, 10m = 90%
                 sync_score = max(0, 100 - sync_dist_m)
 
+            # POI 생존 판정
+            status, status_confidence, status_reason = classify_poi_status(
+                place.get("name", ""), g_lat, g_lng,
+                naver_item, n_lat, n_lng,
+            )
+
+            # 이름 유사도
+            sim = None
+            if naver_name:
+                sim = round(name_similarity(place.get("name", ""), naver_name), 2)
+
             places.append({
+                # 기존 필드 유지
                 "name": place.get("name", ""),
                 "address": place.get("formatted_address", ""),
                 "place_id": place.get("place_id", ""),
@@ -210,6 +283,15 @@ async def search_place(payload: dict):
                 "correction_distance_m": round(dist_m, 1),
                 "confidence": correction["confidence"],
                 "method": correction["method"],
+                # 새 필드: POI 생존 검증
+                "status": status,
+                "status_reason": status_reason,
+                "status_confidence": status_confidence,
+                "naver_name": naver_name,
+                "naver_category": naver_category,
+                "naver_phone": naver_phone,
+                "naver_link": naver_link,
+                "name_similarity": sim,
             })
 
         response = {"places": places, "query": full_query, "total": len(places)}

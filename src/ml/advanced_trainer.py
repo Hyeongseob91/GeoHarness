@@ -145,6 +145,15 @@ def train_advanced_model(
     df["delta_x"] = df["n_wgs_lng"] - df["g_lng"]
     df["delta_y"] = df["n_wgs_lat"] - df["g_lat"]
 
+    # Outlier filtering: Naver 검색이 동명이인 장소(부산, 제주 등)를 반환한 노이즈 제거
+    # 성수동 내 Google-Naver offset은 통상 100m 이내
+    pre_filter = len(df)
+    dist_deg = np.sqrt(df["delta_x"] ** 2 + df["delta_y"] ** 2)
+    # ~0.001도 ≈ ~100m at Korean latitude
+    MAX_OFFSET_DEG = 0.003  # ~300m — 충분한 마진 포함
+    df = df[dist_deg <= MAX_OFFSET_DEG].reset_index(drop=True)
+    logger.info(f"Outlier filter: {pre_filter} → {len(df)} samples (removed {pre_filter - len(df)} with offset > {MAX_OFFSET_DEG}°)")
+
     logger.info("[2/5] Engineering Geometric Features...")
     anchors = load_vworld_anchors(anchors_path)
     df = generate_triangulation_features(df, anchors)

@@ -11,6 +11,8 @@
   --danger: #ff5555;
   --warning: #ffab00;
   --blue: #1fa2ff;
+  --verified: #0df07a;
+  --not-found: #ff5555;
 }
 
 * {
