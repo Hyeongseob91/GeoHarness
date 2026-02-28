@@ -10,6 +10,9 @@
     <!-- Note: We use async/defer here but realistically the USER must supply an API key -->
     <script id="gmaps-script" async defer></script>
 
+    <!-- Naver Maps SDK Setup -->
+    <script id="naver-script" type="text/javascript"></script>
+
     <style>
         :root {
             --primary: #2b5cff;
@@ -299,7 +302,8 @@
     <header>
         <h1>GeoHarness Spatial-Sync v4.0</h1>
         <div class="controls">
-            <input type="text" id="api-key" placeholder="Google Maps API Key" />
+            <input type="text" id="api-key" placeholder="Google API Key" style="width: 120px;" />
+            <input type="text" id="naver-key" placeholder="Naver Client ID" style="width: 120px;" />
             <button id="btn-init-map">Init Maps</button>
 
             <div style="width: 1px; height: 24px; background: #444; margin: 0 10px;"></div>
@@ -441,51 +445,100 @@
             })
             .catch(err => console.error("Failed to load test coordinates", err));
 
-        // Initialize Maps SDK dynamically based on user input for hackathon security bypassing
+        // Initialize SDKs dynamically based on user input for hackathon security bypassing
         document.getElementById('btn-init-map').addEventListener('click', () => {
-            const key = document.getElementById('api-key').value;
-            if (!key) return alert("Please provide a valid Google Maps API Key.");
+            const googleKey = document.getElementById('api-key').value;
+            const naverKey = document.getElementById('naver-key').value;
 
-            window.initMaps = initializeMapsLayout;
-            const script = document.getElementById('gmaps-script');
-            script.src = `https://maps.googleapis.com/maps/api/js?key=${key}&callback=initMaps`;
+            if (!googleKey || !naverKey) return alert("Please provide both Google API Key and Naver Client ID.");
+
+            // 1. Load Naver Script (Synchronous to ensure global `naver` object exists before Google callback)
+            const nScript = document.getElementById('naver-script');
+            nScript.src = `https://openapi.map.naver.com/openapi/v3/maps.js?ncpClientId=${naverKey}`;
+
+            nScript.onload = () => {
+                // 2. Load Google Script only after Naver is ready
+                window.initMaps = initializeMapsLayout;
+                const gScript = document.getElementById('gmaps-script');
+                gScript.src = `https://maps.googleapis.com/maps/api/js?key=${googleKey}&callback=initMaps`;
+            };
+
+            nScript.onerror = () => {
+                showError("Failed to load Naver Maps SDK. Please check your Client ID or network.");
+            }
         });
 
         function initializeMapsLayout() {
-            const gangnam = { lat: 37.49794, lng: 127.02764 };
+            const gangnamParams = { lat: 37.49794, lng: 127.02764 };
 
-            // Left Map (Google Default)
+            // ==========================================
+            // Left Map (Google WGS84 Default)
+            // ==========================================
             mapLeft = new google.maps.Map(document.getElementById("map-left"), {
-                center: gangnam,
+                center: gangnamParams,
                 zoom: 18,
                 disableDefaultUI: true,
                 mapTypeId: "roadmap"
             });
 
             markerLeft = new google.maps.Marker({
-                position: gangnam,
+                position: gangnamParams,
                 map: mapLeft,
                 title: "Input Coordinate"
             });
 
-            // Right Map (Naver Surrogate - Terrain/Satellite)
-            mapRight = new google.maps.Map(document.getElementById("map-right"), {
-                center: gangnam,
-                zoom: 18,
-                disableDefaultUI: true,
-                mapTypeId: "satellite"
+            // ==========================================
+            // Right Map (Naver GRS80 Surrogate)
+            // ==========================================
+            const naverLatLng = new naver.maps.LatLng(gangnamParams.lat, gangnamParams.lng);
+
+            mapRight = new naver.maps.Map('map-right', {
+                center: naverLatLng,
+                zoom: 18, // Naver uses similar zoom levels to Google
+                mapTypeId: naver.maps.MapTypeId.SATELLITE,
+                disableKineticPan: false
             });
 
-            // Use blue icon to denote corrected/target
-            markerRight = new google.maps.Marker({
-                position: gangnam,
+            markerRight = new naver.maps.Marker({
+                position: naverLatLng,
                 map: mapRight,
-                icon: "http://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-                title: "Corrected Coordinate"
+                icon: {
+                    content: '<div style="width:20px;height:20px;background:#2b5cff;border-radius:50%;border:2px solid white;box-shadow:0 0 5px rgba(0,0,0,0.5);"></div>',
+                    size: new naver.maps.Size(20, 20),
+                    anchor: new naver.maps.Point(10, 10)
+                }
             });
 
-            // Sync Pan/Zoom between the two maps (like a true split screen)
-            mapLeft.addListener('bounds_changed', () => mapRight.setZoom(mapLeft.getZoom()));
+            // ==========================================
+            // Sync Pan/Zoom between Google -> Naver
+            // ==========================================
+            let isSyncing = false;
+
+            mapLeft.addListener('bounds_changed', () => {
+                if (isSyncing) return;
+                isSyncing = true;
+
+                const gCenter = mapLeft.getCenter();
+                const gZoom = mapLeft.getZoom();
+
+                mapRight.setZoom(gZoom);
+                mapRight.setCenter(new naver.maps.LatLng(gCenter.lat(), gCenter.lng()));
+
+                isSyncing = false;
+            });
+
+            naver.maps.Event.addListener(mapRight, 'bounds_changed', function () {
+                if (isSyncing) return;
+                isSyncing = true;
+
+                const nCenter = mapRight.getCenter();
+                const nZoom = mapRight.getZoom();
+
+                mapLeft.setZoom(nZoom);
+                mapLeft.setCenter({ lat: nCenter.y, lng: nCenter.x });
+
+                isSyncing = false;
+            });
         }
 
         // Run Sync Pipeline Execution
@@ -541,8 +594,9 @@
                 mapLeft.panTo(inputPos);
                 markerLeft.setPosition(inputPos);
 
-                mapRight.panTo(finalPos);
-                markerRight.setPosition(finalPos);
+                const nTargetPos = new naver.maps.LatLng(finalLat, finalLng);
+                mapRight.panTo(nTargetPos);
+                markerRight.setPosition(nTargetPos);
 
                 // Update Overlay Data
                 document.getElementById('val-score').innerText = harness.harness_score;
