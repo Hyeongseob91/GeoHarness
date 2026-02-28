@@ -122,6 +122,16 @@ export default function SearchPage() {
     finally { setLoading(false); }
   }, [query]);
 
+  // Reset map instances when returning to empty state (DOM unmounts)
+  useEffect(() => {
+    if (!selected) {
+      gMap.current = null;
+      nMap.current = null;
+      nMarker.current = null;
+      gMarkers.current = [];
+    }
+  }, [selected]);
+
   // Update maps when selected changes
   useEffect(() => {
     if (!selected) return;
@@ -216,7 +226,7 @@ export default function SearchPage() {
             한국 내 구글 POI의 <strong className="text-[var(--warning)]">31%</strong>는 폐업·이전되었을 수 있습니다.
           </p>
           <div className="flex gap-2 mt-4 flex-wrap justify-center">
-            {["천상가옥", "오우도", "블루보틀 성수", "하이라인 성수"].map((n) => (
+            {["복식커피", "아무튼겨울", "뚝섬미술관", "하이라인 성수"].map((n) => (
               <button key={n} onClick={() => { setQuery(n); handleSearch(n); }}
                 className="px-3 py-1.5 bg-[var(--border)] rounded-full text-xs hover:bg-[var(--accent-dim)] transition-colors">{n}</button>
             ))}

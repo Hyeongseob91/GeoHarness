@@ -8,11 +8,13 @@ GeoHarness v6.0: POI Survival Verification API
 4. 판정 결과 + 원본/보정 좌표 + 메타데이터를 반환합니다.
 """
 
+import csv
 import logging
 import re
 import time
 from difflib import SequenceMatcher
-from typing import Dict, Optional, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 from fastapi import APIRouter, Query
@@ -24,6 +26,16 @@ from shared.config import settings
 logger = logging.getLogger("SearchAPI")
 
 router = APIRouter(prefix="/api/v1", tags=["search"])
+
+# ── CSV 데이터셋 로딩 (서버 시작 시 1회) ──
+_dataset: List[dict] = []
+_dataset_path = Path(__file__).resolve().parent.parent.parent / "data" / "ml_dataset.csv"
+try:
+    with open(_dataset_path, encoding="utf-8") as _f:
+        _dataset = list(csv.DictReader(_f))
+    logger.info(f"Loaded {len(_dataset)} rows from ml_dataset.csv")
+except FileNotFoundError:
+    logger.warning(f"ml_dataset.csv not found at {_dataset_path}")
 
 # 간단한 메모리 캐시 (TTL 기반)
 _search_cache: Dict[str, dict] = {}
@@ -63,6 +75,48 @@ def name_similarity(google_name: str, naver_name: str) -> float:
     if not g or not n:
         return 0.0
     return SequenceMatcher(None, g, n).ratio()
+
+
+def _find_in_dataset(query: str) -> Optional[dict]:
+    """CSV 데이터셋에서 퍼지 매칭으로 POI 검색"""
+    if not _dataset:
+        return None
+    best_row = None
+    best_score = 0.0
+    for row in _dataset:
+        score = max(
+            name_similarity(query, row.get("poi_name", "")),
+            name_similarity(query, row.get("n_name", "")),
+        )
+        if score > best_score:
+            best_score = score
+            best_row = row
+    if best_score >= 0.4 and best_row:
+        return best_row
+    return None
+
+
+def _csv_row_to_naver(row: dict) -> Tuple[dict, Optional[float], Optional[float]]:
+    """CSV row를 Naver API 응답 형식으로 변환"""
+    naver_item = {
+        "title": row.get("n_name", ""),
+        "category": row.get("poi_type", ""),
+        "address": row.get("n_address", ""),
+        "telephone": "",
+        "link": "",
+    }
+    n_lat, n_lng = None, None
+    try:
+        raw_x = int(row.get("n_mapx", 0))
+        raw_y = int(row.get("n_mapy", 0))
+        if raw_x and raw_y:
+            n_lng = raw_x / 10_000_000.0
+            n_lat = raw_y / 10_000_000.0
+            if not (33.0 <= n_lat <= 43.0 and 124.0 <= n_lng <= 132.0):
+                n_lat, n_lng = None, None
+    except (ValueError, TypeError):
+        pass
+    return naver_item, n_lat, n_lng
 
 
 def classify_poi_status(
@@ -198,6 +252,13 @@ async def search_place(payload: dict):
                 except (ValueError, TypeError):
                     pass
 
+        # CSV 폴백: Naver API 실패 시 데이터셋에서 매칭
+        if naver_item is None:
+            csv_row = _find_in_dataset(full_query)
+            if csv_row:
+                naver_item, n_lat, n_lng = _csv_row_to_naver(csv_row)
+                logger.info(f"CSV fallback (query): matched '{csv_row.get('n_name')}' for '{full_query}'")
+
         # 2차 폴백: NCP Geocoding (Naver Search 실패 시, formatted_address로 재시도)
         if n_lat is None and ncp_id and ncp_secret and results:
             address_str = results[0].get("formatted_address", "")
@@ -225,21 +286,29 @@ async def search_place(payload: dict):
                 except Exception as e:
                     logger.warning(f"NCP Geocoding fallback failed: {e}")
 
-        # Naver 메타데이터 추출
-        naver_name = None
-        naver_category = None
-        naver_phone = None
-        naver_link = None
-        if naver_item:
-            naver_name = _strip_html(naver_item.get("title", "")) or None
-            naver_category = naver_item.get("category") or None
-            naver_phone = naver_item.get("telephone") or None
-            naver_link = naver_item.get("link") or None
-
         for place in results[:5]:  # 상위 5건만
             geo = place.get("geometry", {}).get("location", {})
             g_lat = geo.get("lat", 0)
             g_lng = geo.get("lng", 0)
+            place_name = place.get("name", "")
+
+            # 개별 CSV 매칭: 각 Google 결과마다 자기에 맞는 Naver 데이터
+            p_naver_item, p_n_lat, p_n_lng = naver_item, n_lat, n_lng
+            csv_row = _find_in_dataset(place_name)
+            if csv_row:
+                p_naver_item, p_n_lat, p_n_lng = _csv_row_to_naver(csv_row)
+                logger.info(f"CSV fallback (place): matched '{csv_row.get('n_name')}' for '{place_name}'")
+
+            # Naver 메타데이터 추출 (개별)
+            p_naver_name = None
+            p_naver_category = None
+            p_naver_phone = None
+            p_naver_link = None
+            if p_naver_item:
+                p_naver_name = _strip_html(p_naver_item.get("title", "")) or None
+                p_naver_category = p_naver_item.get("category") or None
+                p_naver_phone = p_naver_item.get("telephone") or None
+                p_naver_link = p_naver_item.get("link") or None
 
             # ML 보정 (보조 지표)
             correction = predict_offset(g_lat, g_lng)
@@ -250,25 +319,25 @@ async def search_place(payload: dict):
             # Sync 거리 및 점수 계산 (Naver 좌표가 있을 경우)
             sync_score = None
             naver_location = None
-            if n_lat is not None and n_lng is not None:
-                naver_location = {"lat": n_lat, "lng": n_lng}
-                sync_dist_m = haversine_m(correction["corrected_lat"], correction["corrected_lng"], n_lat, n_lng)
+            if p_n_lat is not None and p_n_lng is not None:
+                naver_location = {"lat": p_n_lat, "lng": p_n_lng}
+                sync_dist_m = haversine_m(correction["corrected_lat"], correction["corrected_lng"], p_n_lat, p_n_lng)
                 sync_score = max(0, 100 - sync_dist_m)
 
             # POI 생존 판정
             status, status_confidence, status_reason = classify_poi_status(
-                place.get("name", ""), g_lat, g_lng,
-                naver_item, n_lat, n_lng,
+                place_name, g_lat, g_lng,
+                p_naver_item, p_n_lat, p_n_lng,
             )
 
             # 이름 유사도
             sim = None
-            if naver_name:
-                sim = round(name_similarity(place.get("name", ""), naver_name), 2)
+            if p_naver_name:
+                sim = round(name_similarity(place_name, p_naver_name), 2)
 
             places.append({
                 # 기존 필드 유지
-                "name": place.get("name", ""),
+                "name": place_name,
                 "address": place.get("formatted_address", ""),
                 "place_id": place.get("place_id", ""),
                 "types": place.get("types", []),
@@ -287,10 +356,10 @@ async def search_place(payload: dict):
                 "status": status,
                 "status_reason": status_reason,
                 "status_confidence": status_confidence,
-                "naver_name": naver_name,
-                "naver_category": naver_category,
-                "naver_phone": naver_phone,
-                "naver_link": naver_link,
+                "naver_name": p_naver_name,
+                "naver_category": p_naver_category,
+                "naver_phone": p_naver_phone,
+                "naver_link": p_naver_link,
                 "name_similarity": sim,
             })
 
