@@ -22,6 +22,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 COPY --from=frontend /frontend/out /app/frontend/out
 EXPOSE 8080
-# python src/main.py: PYTHONPATH=/app/src makes src/ internals top-level,
-# which conflicts with uvicorn's package-style module resolution (no src/__init__.py).
-CMD ["python", "src/main.py"]
+# uv run activates the .venv created by uv sync, ensuring all deps are available.
+# python (not uvicorn CLI): PYTHONPATH=/app/src makes src/ internals top-level,
+# which conflicts with uvicorn's package-style module resolution.
+CMD ["uv", "run", "python", "src/main.py"]
