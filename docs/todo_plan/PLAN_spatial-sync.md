@@ -38,7 +38,7 @@ B ██ Setup ██████ API+UI ██████████ ██ s
 - [x] Gemini JSON 응답 테스트 (response_mime_type)
 - [x] Harness Score 공식 확인
 
-**팀원:**
+**지민 (Team):**
 - [x] FastAPI 프로젝트 초기화 (uv init & 사용)
 - [x] .env / .env.example / .gitignore 설정
 - [x] 의존성 설치 (pyproj, fastapi, uvicorn, google-generativeai, numpy)
@@ -52,7 +52,7 @@ B ██ Setup ██████ API+UI ██████████ ██ s
 - [x] Gemini Self-Correction 루프 (1~2회, 15s 타임아웃)
 - [x] test_coordinates.json 로드 + 12개 배치 RMSE 검증
 
-**팀원:**
+**지민 (Team):**
 - [x] POST /api/v1/transform 엔드포인트
 - [x] POST /api/v1/transform/batch 엔드포인트 (Gemini 미호출)
 - [x] GET /api/v1/test-coordinates 엔드포인트
@@ -69,7 +69,7 @@ B ██ Setup ██████ API+UI ██████████ ██ s
 - [x] 에러 핸들링 (INVALID_COORDINATES, OUT_OF_COVERAGE)
 - [x] Harness Score 산출 최종화
 
-**팀원:**
+**지민 (Team):**
 - [x] Google Maps 2개 인스턴스 split-view
 - [x] RMSE / Harness Score / Gemini reasoning 오버레이
 - [x] 에러 시 빨간 오버레이
