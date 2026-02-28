@@ -66,6 +66,11 @@ from fastapi.staticfiles import StaticFiles
 # Add static front-end assets mounting
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok", "version": "4.0"}
+
+
 @app.get("/")
 def read_root():
     # Helper to load front-end index trivially via FastAPI instead of separate file server.

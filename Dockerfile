@@ -1,10 +1,14 @@
 # Use the latest Python 3.11 for broader pip package compatibility (pyproj, etc.)
 FROM python:3.11-slim
 
+LABEL maintainer="GeoHarness Team"
+LABEL service="geoharness-api"
+
 # Install uv for fast dependency management and set env variables
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 ENV UV_SYSTEM_PYTHON=1
 ENV PYTHONPATH=/app/src
+ENV PORT=8080
 
 # Setup Working Directory
 WORKDIR /app
