@@ -1,0 +1,98 @@
+[
+  {
+    "id": 1,
+    "name": "강남역",
+    "category": "교통",
+    "google_coords": { "lat": 37.49794, "lng": 127.02764 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 2,
+    "name": "서울시청",
+    "category": "관공서",
+    "google_coords": { "lat": 37.56668, "lng": 126.97841 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 3,
+    "name": "광화문",
+    "category": "랜드마크",
+    "google_coords": { "lat": 37.57600, "lng": 126.97690 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 4,
+    "name": "남산타워",
+    "category": "랜드마크",
+    "google_coords": { "lat": 37.55121, "lng": 126.98828 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 5,
+    "name": "코엑스",
+    "category": "상업",
+    "google_coords": { "lat": 37.51190, "lng": 127.05930 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 6,
+    "name": "여의도공원",
+    "category": "공원",
+    "google_coords": { "lat": 37.52540, "lng": 126.92440 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 7,
+    "name": "홍대입구역",
+    "category": "교통",
+    "google_coords": { "lat": 37.55712, "lng": 126.92370 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 8,
+    "name": "잠실종합운동장",
+    "category": "스포츠",
+    "google_coords": { "lat": 37.51522, "lng": 127.07300 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 9,
+    "name": "경복궁",
+    "category": "문화재",
+    "google_coords": { "lat": 37.57977, "lng": 126.97699 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 10,
+    "name": "이태원역",
+    "category": "교통",
+    "google_coords": { "lat": 37.53454, "lng": 126.99458 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 11,
+    "name": "동대문DDP",
+    "category": "상업",
+    "google_coords": { "lat": 37.56714, "lng": 127.00920 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  },
+  {
+    "id": 12,
+    "name": "서울대입구역",
+    "category": "교통",
+    "google_coords": { "lat": 37.48137, "lng": 126.95270 },
+    "naver_coords": { "lat": 0.0, "lng": 0.0 },
+    "distance_m": 0.0
+  }
+]
