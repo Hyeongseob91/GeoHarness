@@ -70,8 +70,7 @@ def transform_endpoint(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=400, detail="INVALID_COORDINATES: lat and lng must be numbers")
 
     if not (33.0 <= lat <= 43.0) or not (124.0 <= lng <= 132.0):
-        # We process anyway but flag it outside standard bounds if needed.
-        pass
+        raise HTTPException(status_code=422, detail="OUT_OF_COVERAGE: Coordinates outside Korean bounds")
 
     try:
         transform_result = run_transformation_pipeline(lat, lng)
