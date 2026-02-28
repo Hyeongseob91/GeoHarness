@@ -46,22 +46,18 @@ def test_calculate_rmse():
 
 def test_pyproj_transformation_roundtrip():
     lat, lng = 37.49794, 127.02764
-    
-    # We mock the return logic inside Python directly 
-    # Mocking Transformer.from_crs outputs
-    mock_transformer.transform.side_effect = [
-        (1000000.0, 2000000.0), # Forward x, y
-        (127.02764, 37.49794)   # Reverse lon, lat
-    ]
 
     result = run_transformation_pipeline(lat, lng)
-    
+
     assert "x" in result["epsg5179"]
     assert "y" in result["epsg5179"]
-    assert result["epsg5179"]["x"] == 1000000.0
-    
+    # pyproj 실제 변환 결과가 유효한 EPSG:5179 범위인지 확인
+    assert 800000 < result["epsg5179"]["x"] < 1200000
+    assert 1700000 < result["epsg5179"]["y"] < 2100000
+
     rt_lat = result["roundtrip"]["lat"]
     rt_lng = result["roundtrip"]["lng"]
-    
+
+    # round-trip 정밀도: 나노미터 수준이므로 0.000001도 이내
     assert abs(lat - rt_lat) < 0.000001
     assert abs(lng - rt_lng) < 0.000001

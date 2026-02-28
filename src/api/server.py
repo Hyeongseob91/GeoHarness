@@ -74,7 +74,24 @@ def transform_endpoint(payload: Dict[str, Any] = Body(...)):
 
     try:
         transform_result = run_transformation_pipeline(lat, lng)
-        dummy_ground_truth = {"lat": lat + 0.00001, "lng": lng - 0.00001, "source": "dummy"}
+        
+        # Phase 4: Use real ground truth if it matches a test landmark, else dummy
+        matched_landmark = None
+        for lm in TEST_LANDMARKS:
+            glat = lm["google_coords"]["lat"]
+            glng = lm["google_coords"]["lng"]
+            if abs(glat - lat) < 0.0001 and abs(glng - lng) < 0.0001:
+                matched_landmark = lm
+                break
+                
+        if matched_landmark:
+            ground_truth = {
+                "lat": matched_landmark["naver_coords"]["lat"],
+                "lng": matched_landmark["naver_coords"]["lng"],
+                "source": matched_landmark["name"]
+            }
+        else:
+            ground_truth = {"lat": lat + 0.00001, "lng": lng - 0.00001, "source": "dummy"}
         
         harness_payload = {
             "rmse_before_m": 0.0,
@@ -88,12 +105,12 @@ def transform_endpoint(payload: Dict[str, Any] = Body(...)):
 
         if run_harness and gemini_model:
             input_context = {"lat": lat, "lng": lng, "label": "API Request Point"}
-            rmse_pre, _, _, _, _ = execute_gemini_correction_loop(gemini_model, input_context, dummy_ground_truth, max_iterations=0)
+            rmse_pre, _, _, _, _ = execute_gemini_correction_loop(gemini_model, input_context, ground_truth, max_iterations=0)
             
             final_rmse, score, corrections, reasoning, status = execute_gemini_correction_loop(
                 gemini_model, 
                 input_context, 
-                dummy_ground_truth, 
+                ground_truth, 
                 max_iterations=2
             )
             
@@ -113,7 +130,7 @@ def transform_endpoint(payload: Dict[str, Any] = Body(...)):
             "data": {
                 "input": {"latitude": lat, "longitude": lng, "label": "API Point"},
                 "epsg5179": transform_result["epsg5179"],
-                "ground_truth": dummy_ground_truth,
+                "ground_truth": ground_truth,
                 "harness": harness_payload
             },
             "meta": {"processing_time_ms": int(end_ms - start_ms)}
@@ -172,7 +189,7 @@ def transform_batch_endpoint(payload: Dict[str, Any] = Body(...)):
 
     count = len(TEST_LANDMARKS)
     avg_rmse = total_rmse / count
-    avg_score = total_score // count
+    avg_score = total_score / count
 
     end_ms = time.time() * 1000
 

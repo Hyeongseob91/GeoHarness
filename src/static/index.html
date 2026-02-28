@@ -256,6 +256,11 @@
 
             <div style="width: 1px; height: 24px; background: #444; margin: 0 10px;"></div>
 
+            <select id="landmark-select"
+                style="background: #111; border: 1px solid #444; color: white; padding: 0.5rem; border-radius: 4px; font-size: 0.9rem; max-width: 150px;">
+                <option value="">Custom Location</option>
+            </select>
+
             <input type="number" id="input-lat" placeholder="Latitude (37.4979)" step="0.0001" value="37.49794" />
             <input type="number" id="input-lng" placeholder="Longitude (127.0276)" step="0.0001" value="127.02764" />
             <button id="btn-sync">
@@ -321,6 +326,30 @@
         let mapLeft, mapRight;
         let markerLeft, markerRight;
         const API_BASE = "http://localhost:8000/api/v1";
+
+        // Fetch test coordinates on load
+        fetch(`${API_BASE}/test-coordinates`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    const select = document.getElementById('landmark-select');
+                    data.data.forEach(lm => {
+                        const opt = document.createElement('option');
+                        opt.value = JSON.stringify(lm.google_coords);
+                        opt.textContent = lm.name;
+                        select.appendChild(opt);
+                    });
+
+                    select.addEventListener('change', (e) => {
+                        if (e.target.value) {
+                            const coords = JSON.parse(e.target.value);
+                            document.getElementById('input-lat').value = coords.lat.toFixed(5);
+                            document.getElementById('input-lng').value = coords.lng.toFixed(5);
+                        }
+                    });
+                }
+            })
+            .catch(err => console.error("Failed to load test coordinates", err));
 
         // Initialize Maps SDK dynamically based on user input for hackathon security bypassing
         document.getElementById('btn-init-map').addEventListener('click', () => {
@@ -428,16 +457,20 @@
                 // Update Overlay Data
                 document.getElementById('val-score').innerText = harness.harness_score;
                 document.getElementById('val-rmse-pre').innerText = harness.rmse_before_m.toFixed(2) + " m";
-                document.getElementById('val-rmse-post').innerText = harness.rmse_after_m.toFixed(2) + " m";
                 document.getElementById('val-iter').innerText = harness.iterations;
 
+                const postRmseEl = document.getElementById('val-rmse-post');
                 const rEl = document.getElementById('gemini-reasoning');
-                if (harness.gemini_status === "success") {
-                    rEl.innerText = harness.gemini_reasoning;
+                if (harness.gemini_status === "success" || (harness.gemini_reasoning && harness.gemini_status !== "skipped" && harness.gemini_status !== "error")) {
+                    postRmseEl.innerText = harness.rmse_after_m.toFixed(2) + " m";
+                    postRmseEl.className = "metric-value text-success";
+                    rEl.innerText = harness.gemini_reasoning || "Successfully corrected.";
                     rEl.style.color = "#ddd";
                 } else {
+                    postRmseEl.innerText = harness.rmse_after_m.toFixed(2) + " m (Gemini 보정 없음)";
+                    postRmseEl.className = "metric-value text-warning";
                     rEl.innerText = `Gemini Pipeline fallback executed: Status = ${harness.gemini_status}. Showing PyProj uncorrected offsets only.`;
-                    rEl.style.color = "var(--warning)";
+                    rEl.style.color = "#ffab00";
                 }
 
                 document.getElementById('score-overlay').style.display = 'flex';
