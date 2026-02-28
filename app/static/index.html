@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoHarness — Spatial-Sync</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a2e; color: #eee; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 24px; background: #16213e; border-bottom: 2px solid #0f3460;
+    }
+    header h1 { font-size: 1.4rem; color: #e94560; }
+    header span { font-size: 0.85rem; color: #888; }
+
+    .controls {
+      display: flex; gap: 12px; align-items: center;
+      padding: 16px 24px; background: #16213e;
+    }
+    .controls label { font-size: 0.85rem; color: #aaa; }
+    .controls input {
+      width: 140px; padding: 6px 10px; border: 1px solid #0f3460;
+      border-radius: 4px; background: #1a1a2e; color: #eee; font-size: 0.9rem;
+    }
+    .controls button {
+      padding: 8px 20px; border: none; border-radius: 4px;
+      background: #e94560; color: #fff; font-weight: 600; cursor: pointer;
+      font-size: 0.9rem; transition: background 0.2s;
+    }
+    .controls button:hover { background: #c73650; }
+
+    .score-bar {
+      display: flex; gap: 24px; padding: 10px 24px;
+      background: #0f3460; font-size: 0.9rem;
+    }
+    .score-bar .metric { display: flex; gap: 6px; }
+    .score-bar .value { color: #e94560; font-weight: 700; }
+
+    .split-view {
+      display: grid; grid-template-columns: 1fr 1fr;
+      height: calc(100vh - 160px);
+    }
+    .map-pane {
+      position: relative; border: 1px solid #0f3460;
+    }
+    .map-pane .label {
+      position: absolute; top: 8px; left: 8px; z-index: 10;
+      background: rgba(15, 52, 96, 0.85); padding: 4px 12px;
+      border-radius: 4px; font-size: 0.8rem; font-weight: 600;
+    }
+    #map-left, #map-right {
+      width: 100%; height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>GeoHarness</h1>
+    <span>Geometry-based Coordinate Alignment System</span>
+  </header>
+
+  <div class="controls">
+    <label>위도</label>
+    <input type="number" id="lat" step="0.0001" value="37.4979" placeholder="37.4979">
+    <label>경도</label>
+    <input type="number" id="lng" step="0.0001" value="127.0276" placeholder="127.0276">
+    <button id="btn-transform">변환</button>
+  </div>
+
+  <div class="score-bar">
+    <div class="metric">RMSE: <span class="value" id="rmse-val">—</span> m</div>
+    <div class="metric">Harness Score: <span class="value" id="score-val">—</span></div>
+    <div class="metric">Gemini: <span class="value" id="gemini-val">—</span></div>
+  </div>
+
+  <div class="split-view">
+    <div class="map-pane">
+      <div class="label">Google Maps (원본)</div>
+      <div id="map-left"></div>
+    </div>
+    <div class="map-pane">
+      <div class="label">보정 결과</div>
+      <div id="map-right"></div>
+    </div>
+  </div>
+
+  <script>
+    let mapLeft, mapRight, markerLeft, markerRight;
+
+    function initMaps() {
+      const center = { lat: 37.4979, lng: 127.0276 };
+      mapLeft = new google.maps.Map(document.getElementById('map-left'), {
+        center, zoom: 16, mapTypeId: 'roadmap',
+      });
+      mapRight = new google.maps.Map(document.getElementById('map-right'), {
+        center, zoom: 16, mapTypeId: 'hybrid',
+      });
+    }
+
+    document.getElementById('btn-transform').addEventListener('click', async () => {
+      const lat = parseFloat(document.getElementById('lat').value);
+      const lng = parseFloat(document.getElementById('lng').value);
+      if (isNaN(lat) || isNaN(lng)) return alert('올바른 좌표를 입력하세요.');
+
+      const pos = { lat, lng };
+      mapLeft.setCenter(pos);
+      mapRight.setCenter(pos);
+
+      if (markerLeft) markerLeft.setMap(null);
+      if (markerRight) markerRight.setMap(null);
+      markerLeft = new google.maps.Marker({ position: pos, map: mapLeft, label: 'O' });
+      markerRight = new google.maps.Marker({ position: pos, map: mapRight, label: 'O' });
+
+      try {
+        const res = await fetch('/api/v1/transform', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latitude: lat, longitude: lng }),
+        });
+        const data = await res.json();
+
+        document.getElementById('rmse-val').textContent = data.rmse_m ?? '—';
+        document.getElementById('score-val').textContent = data.harness_score ?? '—';
+        document.getElementById('gemini-val').textContent = data.gemini_used ? '사용' : '미사용';
+
+        if (data.corrected) {
+          const corrPos = { lat: data.corrected.latitude, lng: data.corrected.longitude };
+          markerRight = new google.maps.Marker({
+            position: corrPos, map: mapRight, label: 'C',
+            icon: { url: 'https://maps.google.com/mapfiles/ms/icons/green-dot.png' },
+          });
+          mapRight.setCenter(corrPos);
+        }
+      } catch (e) {
+        console.error('Transform API error:', e);
+      }
+    });
+  </script>
+  <script id="maps-script"></script>
+  <script>
+    // Google Maps API 키를 서버에서 가져와 동적으로 로딩
+    (async () => {
+      try {
+        const res = await fetch('/api/v1/maps-key');
+        const { key } = await res.json();
+        if (key) {
+          const s = document.getElementById('maps-script');
+          s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&callback=initMaps`;
+          s.async = true;
+        } else {
+          document.getElementById('map-left').innerHTML = '<p style="padding:20px;color:#e94560;">Google Maps API 키가 설정되지 않았습니다. .env 파일을 확인하세요.</p>';
+        }
+      } catch {
+        document.getElementById('map-left').innerHTML = '<p style="padding:20px;color:#e94560;">API 키 로딩 실패</p>';
+      }
+    })();
+  </script>
+</body>
+</html>

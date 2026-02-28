@@ -1,0 +1,64 @@
+{
+  "landmarks": [
+    {
+      "name": "경복궁",
+      "google": {"latitude": 37.5796, "longitude": 126.9770},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "N서울타워",
+      "google": {"latitude": 37.5512, "longitude": 126.9882},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "코엑스",
+      "google": {"latitude": 37.5120, "longitude": 127.0590},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "잠실롯데월드타워",
+      "google": {"latitude": 37.5126, "longitude": 127.1026},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "광화문광장",
+      "google": {"latitude": 37.5723, "longitude": 126.9769},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "강남역",
+      "google": {"latitude": 37.4979, "longitude": 127.0276},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "홍대입구역",
+      "google": {"latitude": 37.5571, "longitude": 126.9244},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "여의도 IFC",
+      "google": {"latitude": 37.5255, "longitude": 126.9258},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "동대문디자인플라자",
+      "google": {"latitude": 37.5673, "longitude": 127.0095},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "서울역",
+      "google": {"latitude": 37.5547, "longitude": 126.9707},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "이태원",
+      "google": {"latitude": 37.5345, "longitude": 126.9946},
+      "naver": {"latitude": null, "longitude": null}
+    },
+    {
+      "name": "성수동 카페거리",
+      "google": {"latitude": 37.5447, "longitude": 127.0560},
+      "naver": {"latitude": null, "longitude": null}
+    }
+  ]
+}
