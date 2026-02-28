@@ -19,27 +19,37 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger("Inference")
 
-# 모델 캐시 (한 번 로드 후 재사용)
+# 모델 캐시 + 핫리로드 (파일 수정 시 자동 갱신)
 _model_cache: Optional[Dict] = None
+_model_mtime: float = 0.0
 _MODEL_PATH = "src/models/decoder.pkl"
 
 
 def _load_model() -> Optional[Dict]:
-    """decoder.pkl 모델 번들 로드 (lazy loading + cache)"""
-    global _model_cache
-
-    if _model_cache is not None:
-        return _model_cache
+    """
+    decoder.pkl 모델 번들 로드 (lazy loading + hot-reload)
+    형섭님이 새 pkl을 갈아끼우면 서버 재시작 없이 자동 반영됩니다.
+    """
+    global _model_cache, _model_mtime
 
     model_path = Path(_MODEL_PATH)
     if not model_path.exists():
-        logger.warning(f"Model not found at {_MODEL_PATH} — using fallback")
+        if _model_cache is not None:
+            logger.warning("decoder.pkl deleted — clearing cache, falling back to PyProj")
+            _model_cache = None
         return None
+
+    # 핫리로드: 파일 수정 시간이 바뀌었으면 다시 로드
+    current_mtime = model_path.stat().st_mtime
+    if _model_cache is not None and current_mtime == _model_mtime:
+        return _model_cache
 
     try:
         import joblib
         _model_cache = joblib.load(str(model_path))
-        logger.info(f"✅ Model loaded from {_MODEL_PATH}")
+        _model_mtime = current_mtime
+        n_samples = _model_cache.get('n_samples', '?')
+        logger.info(f"✅ Model loaded from {_MODEL_PATH} (samples: {n_samples})")
         logger.info(f"   Features: {_model_cache.get('feature_cols', [])}")
         logger.info(f"   RMSE: x={_model_cache.get('rmse_x', '?'):.6f}, y={_model_cache.get('rmse_y', '?'):.6f}")
         return _model_cache

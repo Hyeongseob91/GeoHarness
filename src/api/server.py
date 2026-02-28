@@ -40,6 +40,10 @@ app.add_middleware(
 from api.local_verifier import router as verifier_router
 app.include_router(verifier_router)
 
+# Place search + ML correction router
+from api.search import router as search_router
+app.include_router(search_router)
+
 logger = logging.getLogger("api")
 
 # Load VWorld Anchors Data once
@@ -63,17 +67,31 @@ load_landmarks()
 
 from fastapi.staticfiles import StaticFiles
 
-# Add static front-end assets mounting
+# Legacy Algorithm Dashboard
 app.mount("/static", StaticFiles(directory="src/static"), name="static")
 
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "4.0"}
 
+# Next.js static export (검색 프로덕트 UI)
+NEXTJS_OUT = os.path.join(os.path.dirname(__file__), '..', '..', 'frontend', 'out')
+if os.path.exists(NEXTJS_OUT):
+    app.mount("/_next", StaticFiles(directory=os.path.join(NEXTJS_OUT, "_next")), name="nextjs-assets")
 
 @app.get("/")
 def read_root():
-    # Helper to load front-end index trivially via FastAPI instead of separate file server.
+    """Next.js 검색 페이지 (메인)"""
+    nextjs_index = os.path.join(NEXTJS_OUT, "index.html")
+    if os.path.exists(nextjs_index):
+        with open(nextjs_index, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    # Fallback: 기존 대시보드
+    return read_dashboard()
+
+@app.get("/dashboard")
+def read_dashboard():
+    """기존 Algorithm Verification Dashboard"""
     html_file = os.path.join(os.path.dirname(__file__), "..", "static", "index.html")
     with open(html_file, "r", encoding="utf-8") as f:
         html_content = f.read()
