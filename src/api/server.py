@@ -33,6 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ML offset correction router
+from api.local_verifier import router as verifier_router
+app.include_router(verifier_router)
+
 logger = logging.getLogger("api")
 
 # Load Mock Coordinates Data once
