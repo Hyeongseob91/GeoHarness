@@ -68,15 +68,20 @@ def _bearing(lat1, lng1, lat2, lng2):
 
 
 def _compute_anchor_features(g_lat: float, g_lng: float, anchors: List[Dict]) -> tuple:
-    """가장 가까운 기준점까지의 (거리, 방향각) 계산"""
-    min_dist = float("inf")
-    min_bear = 0
+    """가장 가까운 기준점 3개까지의 (거리, 방향각) 계산"""
+    if not anchors or len(anchors) < 3:
+        return (0.0, 0.0) * 3
+
+    relations = []
     for a in anchors:
         d = _haversine_m(g_lat, g_lng, a["lat"], a["lng"])
-        if d < min_dist:
-            min_dist = d
-            min_bear = _bearing(g_lat, g_lng, a["lat"], a["lng"])
-    return min_dist, min_bear
+        b = _bearing(g_lat, g_lng, a["lat"], a["lng"])
+        relations.append((d, b))
+    
+    relations.sort(key=lambda x: x[0])
+    
+    r1, r2, r3 = relations[0], relations[1], relations[2]
+    return r1[0], r1[1], r2[0], r2[1], r3[0], r3[1]
 
 
 def _fallback_pyproj(g_lat: float, g_lng: float) -> Dict:
@@ -137,9 +142,9 @@ def predict_offset(g_lat: float, g_lng: float) -> Dict:
 
         # Feature 구성
         features = [g_lat, g_lng]
-        if "anchor_dist" in feature_cols and anchors:
-            dist, bear = _compute_anchor_features(g_lat, g_lng, anchors)
-            features.extend([dist, bear])
+        if "anchor1_dist" in feature_cols and anchors:
+            a_features = _compute_anchor_features(g_lat, g_lng, anchors)
+            features.extend(a_features)
 
         X = np.array([features])
 
